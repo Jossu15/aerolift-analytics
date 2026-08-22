@@ -108,6 +108,13 @@ with st.sidebar.expander("⚙️ Modelo físico"):
     load_method = st.radio("Método liquid loading",
                            ("turner", "coleman"), horizontal=True)
     bb_segments = st.slider("Segmentos Beggs-Brill", 10, 60, 25)
+    fr_mult = st.number_input(
+        "Multiplicador de fricción BB",
+        min_value=0.1, max_value=10.0, value=1.0, step=0.1,
+        help="Calibración de cuenca sobre el gradiente de fricción "
+             "(1.0 = correlación virgen; >1 tubería rugosa/escarificada).")
+    st.caption("El multiplicador solo afecta el perfil bifásico "
+               "Beggs-Brill.")
 
 with st.sidebar.expander("🧪 Prueba de deliverabilidad (4 puntos)"):
     st.caption("IPR por Rawlins-Schellhardt. Si está vacía o inválida, "
@@ -168,7 +175,8 @@ if use_bb:
         P_surface=p_wh, T_surface=t_wh, T_bottomhole=t_res,
         depth_ft=tvd, gamma_g=gamma_g, liquid_sg=liquid_sg,
         q_liquid_bpd=q_water, d_in=tubing_id,
-        angle_deg=90.0, n_segments=bb_segments)
+        angle_deg=90.0, n_segments=bb_segments,
+        friction_multiplier=fr_mult)
 elif vlp_model.startswith("Gas seco - marcha"):
     vlp_func = build_dry_gas_vlp_func(p_wh, t_wh, t_res, tvd,
                                       gamma_g, tubing_id, n_segments=40)
@@ -399,7 +407,8 @@ with tab3:
             P_surface=p_wh, T_surface=t_wh, T_bottomhole=t_res,
             depth_ft=tvd, gamma_g=gamma_g, liquid_sg=liquid_sg,
             q_gas_mscfd=q_operate, q_liquid_bpd=q_water,
-            d_in=tubing_id, angle_deg=90.0, n_segments=bb_segments)
+            d_in=tubing_id, angle_deg=90.0, n_segments=bb_segments,
+            friction_multiplier=fr_mult)
         depths_wet = [row["depth_ft"] for row in prof_wet]
         press_wet = [row["P"] for row in prof_wet]
         fig_tr.add_trace(go.Scatter(

@@ -109,3 +109,23 @@ class TestForecastEndpoint:
         r = client.post("/api/wells/{}/analysis/forecast".format(
             tested_well_id), json=bad)
         assert r.status_code == 422
+
+
+class TestFrictionMultiplierCalibration:
+    def test_patch_changes_wet_traverse(self, client, well_id):
+        base = client.get("/api/wells/{}/analysis/traverse".format(
+            well_id)).json()
+        r = client.patch("/api/wells/{}".format(well_id),
+                         json={"friction_multiplier": 3.0})
+        assert r.status_code == 200, r.text
+        assert r.json()["friction_multiplier"] == 3.0
+        rough = client.get("/api/wells/{}/analysis/traverse".format(
+            well_id)).json()
+        assert (rough["bhfp_beggs_brill_psia"]
+                > base["bhfp_beggs_brill_psia"])
+
+    def test_invalid_multiplier_422(self, client, well_id):
+        for bad in (0.0, -1.0, 25.0):
+            r = client.patch("/api/wells/{}".format(well_id),
+                             json={"friction_multiplier": bad})
+            assert r.status_code == 422

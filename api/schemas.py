@@ -33,6 +33,10 @@ class WellBase(BaseModel):
     vlp_model: str = Field(default="beggs_brill")
     load_method: str = Field(default="turner")
 
+    friction_multiplier: float = Field(
+        default=1.0, gt=0.0, le=10.0,
+        description="Beggs-Brill friction calibration (1.0 = virgin)")
+
     a_coef: Optional[float] = Field(
         default=None, description="Houpeurt a [psia^2/(Mscf/D)]")
     b_coef: Optional[float] = Field(
@@ -81,6 +85,8 @@ class WellUpdate(BaseModel):
     q_gas_nominal_mscfd: Optional[float] = Field(default=None, ge=0)
     vlp_model: Optional[str] = None
     load_method: Optional[str] = None
+    friction_multiplier: Optional[float] = Field(default=None, gt=0.0,
+                                                 le=10.0)
     a_coef: Optional[float] = None
     b_coef: Optional[float] = None
 

@@ -120,3 +120,34 @@ class TestTraverse:
         P_high, _ = multiphase_traverse(q_gas_mscfd=2000.0, **{
             k: v for k, v in DEMO.items() if k != "q_gas_mscfd"})
         assert P_high < P_low
+
+
+class TestFrictionMultiplier:
+    """Field calibration knob on the BB friction gradient (Step 3.2)."""
+
+    def test_default_is_identity(self):
+        P_a, _ = multiphase_traverse(**DEMO)
+        P_b, _ = multiphase_traverse(friction_multiplier=1.0, **DEMO)
+        assert P_a == pytest.approx(P_b, abs=1e-9)
+
+    def test_monotonic_in_multiplier(self):
+        rough = dict(DEMO)
+        smooth = dict(DEMO)
+        rough["friction_multiplier"] = 2.5
+        smooth["friction_multiplier"] = 0.4
+        P_1, _ = multiphase_traverse(**DEMO)
+        P_rough, _ = multiphase_traverse(**rough)
+        P_smooth, _ = multiphase_traverse(**smooth)
+        assert P_rough > P_1 > P_smooth
+
+    def test_nonpositive_rejected(self):
+        with pytest.raises(ValueError):
+            beggs_brill_gradient(900.0, 600.0, 0.65, 1.0,
+                                 800.0, 40.0, 2.441,
+                                 friction_multiplier=0.0)
+
+    def test_diagnostics_report_the_multiplier(self):
+        _, diag = beggs_brill_gradient(
+            900.0, 600.0, 0.65, 1.0, 800.0, 40.0, 2.441,
+            friction_multiplier=1.7)
+        assert diag["friction_multiplier"] == pytest.approx(1.7)

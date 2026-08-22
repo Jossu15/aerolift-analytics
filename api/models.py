@@ -56,6 +56,11 @@ class Well(Base):
     vlp_model = Column(String(32), nullable=False, default="beggs_brill")
     load_method = Column(String(16), nullable=False, default="turner")
 
+    # Field calibration of the Beggs-Brill friction gradient
+    # (1.0 = virgin correlation; >1 rough/scaled tubing)
+    friction_multiplier = Column(Float, nullable=False, default=1.0,
+                                 server_default="1.0")
+
     # Houpeurt coefficients (used when no deliverability test is stored)
     a_coef = Column(Float)
     b_coef = Column(Float)

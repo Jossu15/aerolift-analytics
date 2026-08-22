@@ -199,7 +199,7 @@ def two_phase_friction_factor(fn, lambda_L, EL):
 def beggs_brill_gradient(P, T, gamma_g, liquid_sg, q_gas_mscfd, q_liquid_bpd,
                          d_in, angle_deg=90.0, sigma_dynecm=30.0,
                          mu_liquid_cp=1.0, mu_gas_cp=0.015,
-                         roughness_in=0.0006):
+                         roughness_in=0.0006, friction_multiplier=1.0):
     """
     Compute the total pressure gradient (psi/ft) at a single point in
     the wellbore using the Beggs-Brill correlation.
@@ -215,8 +215,13 @@ def beggs_brill_gradient(P, T, gamma_g, liquid_sg, q_gas_mscfd, q_liquid_bpd,
     :param sigma_dynecm: Gas-liquid interfacial tension, dyne/cm.
     :param mu_liquid_cp, mu_gas_cp: Liquid and gas viscosities, cp.
     :param roughness_in: Pipe absolute roughness, inches.
+    :param friction_multiplier: Field-calibration factor on the friction
+                gradient (>0). 1.0 = virgin correlation; >1 mimics scale/
+                corrosion/paraffin roughness, <1 mimics smoother pipe.
     :return: (dPdh psi/ft [positive going deeper], diagnostics dict)
     """
+    if friction_multiplier <= 0:
+        raise ValueError("friction_multiplier must be > 0")
     Z = z_factor(P, T, gamma_g)
     rho_g = gas_density(P, T, gamma_g, Z)     # lbm/ft3
     rho_l = liquid_sg * 62.4                  # lbm/ft3
@@ -246,7 +251,8 @@ def beggs_brill_gradient(P, T, gamma_g, liquid_sg, q_gas_mscfd, q_liquid_bpd,
     theta_rad = math.radians(angle_deg)
 
     elevation_grad = rho_m * math.sin(theta_rad) / 144.0              # psi/ft
-    friction_grad = (ftp * rho_ns * vm ** 2) / (2 * GC * d_ft) / 144.0  # psi/ft
+    friction_grad = friction_multiplier * \
+        (ftp * rho_ns * vm ** 2) / (2 * GC * d_ft) / 144.0  # psi/ft
 
     # Kinetic-energy (acceleration) correction term - usually small except
     # at high velocity / low pressure; included for completeness.
@@ -259,6 +265,7 @@ def beggs_brill_gradient(P, T, gamma_g, liquid_sg, q_gas_mscfd, q_liquid_bpd,
         "pattern": pattern,
         "EL": EL,
         "lambda_L": lambda_L,
+        "friction_multiplier": friction_multiplier,
         "vsg_ft_s": vsg,
         "vsl_ft_s": vsl,
         "vm_ft_s": vm,

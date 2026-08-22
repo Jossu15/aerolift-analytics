@@ -99,7 +99,8 @@ def build_dry_gas_vlp_func(P_surface, T_surface, T_bottomhole, depth_ft,
 
 def build_beggs_brill_vlp_func(P_surface, T_surface, T_bottomhole, depth_ft,
                                gamma_g, liquid_sg, q_liquid_bpd, d_in,
-                               angle_deg=90.0, n_segments=25):
+                               angle_deg=90.0, n_segments=25,
+                               friction_multiplier=1.0):
     """
     Two-phase VLP via the full Beggs-Brill multiphase traverse.
     Use when the well produces water and/or condensate - this is the
@@ -121,6 +122,7 @@ def build_beggs_brill_vlp_func(P_surface, T_surface, T_bottomhole, depth_ft,
             d_in=d_in,
             angle_deg=angle_deg,
             n_segments=n_segments,
+            friction_multiplier=friction_multiplier,
         )
         return P_bh
     return vlp_pwf

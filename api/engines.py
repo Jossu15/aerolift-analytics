@@ -46,13 +46,15 @@ def build_vlp_func(well, p_wh=None, q_water_bpd=None):
     d = float(well.tubing_id_in)
     depth = float(well.tvd_ft)
     gg = float(well.gamma_g)
+    fm = float(getattr(well, "friction_multiplier", None) or 1.0)
 
     use_bb = well.vlp_model == "beggs_brill" and q_w > 0
     if use_bb:
         return build_beggs_brill_vlp_func(
             P_surface=P_wh, T_surface=T_wh, T_bottomhole=T_res,
             depth_ft=depth, gamma_g=gg, liquid_sg=float(well.liquid_sg),
-            q_liquid_bpd=q_w, d_in=d, angle_deg=90.0, n_segments=25)
+            q_liquid_bpd=q_w, d_in=d, angle_deg=90.0, n_segments=25,
+            friction_multiplier=fm)
     if well.vlp_model == "avg_tz":
         return build_avg_tz_vlp_func(P_wh, T_wh, T_res, depth, d, gg)
     return build_dry_gas_vlp_func(P_wh, T_wh, T_res, depth, gg, d,
@@ -189,7 +191,9 @@ def pressure_traverse(well, q_gas_mscfd, n_segments=40) -> dict:
             P_surface=P_wh, T_surface=T_wh, T_bottomhole=T_res,
             depth_ft=depth, gamma_g=gg, liquid_sg=float(well.liquid_sg),
             q_gas_mscfd=float(q_gas_mscfd), q_liquid_bpd=q_w, d_in=d,
-            angle_deg=90.0, n_segments=n_segments)
+            angle_deg=90.0, n_segments=n_segments,
+            friction_multiplier=float(
+                getattr(well, "friction_multiplier", None) or 1.0))
         out["P_beggs_brill_psia"] = [row["P"] for row in prof_wet]
         patterns = {}
         for row in prof_wet[1:]:
