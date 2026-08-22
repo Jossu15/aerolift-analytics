@@ -1,0 +1,28 @@
+# Local PostgreSQL for AeroLift Analytics.
+#
+#   docker compose up -d
+#   set DATABASE_URL=postgresql://aerolift:aerolift_dev_password@localhost:5432/aerolift
+#   venv\Scripts\alembic.exe upgrade head
+#
+# The app falls back to SQLite when DATABASE_URL is unset, so this service is
+# only needed for the production-like setup.
+services:
+  db:
+    image: postgres:15-alpine
+    container_name: aerolift-db
+    environment:
+      POSTGRES_USER: aerolift
+      POSTGRES_PASSWORD: aerolift_dev_password
+      POSTGRES_DB: aerolift
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aerolift -d aerolift"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  pgdata:
