@@ -90,6 +90,7 @@ class ProductionRecord(Base):
     q_gas_mscfd = Column(Float, nullable=False)
     q_water_bpd = Column(Float)
     p_wh_psia = Column(Float)
+    pwf_psia = Column(Float)  # optional measured BHFP - calibration input
     created_at = Column(DateTime, default=_utcnow)
 
 

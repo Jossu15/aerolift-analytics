@@ -80,6 +80,23 @@ class ForecastOut(BaseModel):
     history: List[ForecastRow]
 
 
+class CalibrationPoint(BaseModel):
+    date: str
+    q_gas_mscfd: float
+    pwf_measured_psia: float
+    pwf_predicted_psia: Optional[float] = None
+    delta_pct: Optional[float] = None
+
+
+class CalibrationOut(BaseModel):
+    """VLP calibration check: engine BHFP vs measured BHFP."""
+    n_points: int
+    bias_pct: Optional[float] = None   # mean (pred - meas)/meas * 100
+    mae_pct: Optional[float] = None
+    points: List[CalibrationPoint] = []
+    note: Optional[str] = None
+
+
 @router.get("/loading", response_model=LoadingOut)
 def loading(well_id: int,
             q_gas_mscfd: Optional[float] = None,
@@ -152,3 +169,44 @@ def forecast(well_id: int, payload: ForecastIn,
     except ValueError as exc:
         raise HTTPException(422, "material balance fit failed: {}".format(exc))
     return ForecastOut(**result)
+
+
+@router.get("/calibration", response_model=CalibrationOut)
+def calibration(well_id: int,
+                key: models.ApiKey = Depends(require_tier("pro")),
+                db: Session = Depends(get_db)):
+    """
+    Compare the engine's VLP against measured BHFPs from history rows
+    that carry a pwf column (CSV alias: pwf/p_wf/bhfp/presion_fondo).
+    bias > 0 means the correlation over-predicts the required BHFP.
+    """
+    well = _well_or_404(db, well_id, key)
+    recs = [r for r in crud.list_production(db, well.id) if r.pwf_psia]
+    if not recs:
+        return CalibrationOut(
+            n_points=0,
+            note="no measured Pwf rows - upload history CSV with a "
+                 "pwf_psia column to calibrate")
+
+    vlp = engines.build_vlp_func(well)
+    points, deltas = [], []
+    for r in recs:
+        try:
+            pred = vlp(float(r.q_gas_mscfd))
+        except Exception:
+            pred = None
+        delta = ((pred - r.pwf_psia) / r.pwf_psia * 100.0
+                 if pred is not None else None)
+        if delta is not None:
+            deltas.append(delta)
+        points.append(CalibrationPoint(
+            date=r.date, q_gas_mscfd=r.q_gas_mscfd,
+            pwf_measured_psia=float(r.pwf_psia),
+            pwf_predicted_psia=pred, delta_pct=delta))
+
+    return CalibrationOut(
+        n_points=len(points),
+        bias_pct=sum(deltas) / len(deltas) if deltas else None,
+        mae_pct=(sum(abs(d) for d in deltas) / len(deltas)
+                 if deltas else None),
+        points=points)

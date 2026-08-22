@@ -129,3 +129,31 @@ class TestFrictionMultiplierCalibration:
             r = client.patch("/api/wells/{}".format(well_id),
                              json={"friction_multiplier": bad})
             assert r.status_code == 422
+
+
+class TestCalibrationEndpoint:
+    CSV = ("fecha,q_gas,pwf\n"
+           "2024-01-01,900,452\n"
+           "2024-02-01,880,448\n"
+           "2024-03-01,910,455\n"
+           "2024-04-01,860,441\n")
+
+    def test_calibration_with_measured_pwf(self, client, well_id):
+        r = client.post("/api/wells/{}/history/csv".format(well_id),
+                        content=self.CSV,
+                        headers={"Content-Type": "text/csv"})
+        assert r.status_code == 200 and r.json()["records_added"] == 4, \
+            r.text
+        r = client.get("/api/wells/{}/analysis/calibration".format(well_id))
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["n_points"] == 4
+        assert body["bias_pct"] is not None and body["mae_pct"] is not None
+        assert abs(body["bias_pct"]) < 25.0  # demo well is engine-consistent
+        assert body["points"][0]["pwf_predicted_psia"] > 0
+
+    def test_calibration_without_pwf_rows(self, client, well_id):
+        r = client.get("/api/wells/{}/analysis/calibration".format(well_id))
+        assert r.status_code == 200
+        body = r.json()
+        assert body["n_points"] == 0 and body["note"]

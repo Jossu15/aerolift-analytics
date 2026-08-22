@@ -26,6 +26,7 @@ _CSV_ALIASES = {
     "q_water_bpd": ("q_water_bpd", "q_water", "water_rate", "agua"),
     "p_wh_psia": ("p_wh_psia", "p_wh", "whp", "pwh",
                   "presion_superficie"),
+    "pwf_psia": ("pwf_psia", "pwf", "p_wf", "bhfp", "presion_fondo"),
 }
 
 
@@ -232,6 +233,11 @@ async def upload_history_csv(well_id: int, request: Request,
                 row_out["q_water_bpd"] = float(rec["q_water_bpd"])
             if rec.get("p_wh_psia"):
                 row_out["p_wh_psia"] = float(rec["p_wh_psia"])
+            if rec.get("pwf_psia"):
+                pwf = float(rec["pwf_psia"])
+                if pwf <= 0:
+                    raise ValueError("pwf must be > 0")
+                row_out["pwf_psia"] = pwf
             added.append(row_out)
         except (ValueError, IndexError) as exc:
             skipped += 1

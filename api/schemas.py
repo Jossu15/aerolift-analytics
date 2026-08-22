@@ -124,6 +124,7 @@ class ProductionRecordOut(BaseModel):
     q_gas_mscfd: float
     q_water_bpd: Optional[float] = None
     p_wh_psia: Optional[float] = None
+    pwf_psia: Optional[float] = None
 
 
 class HistoryUploadResult(BaseModel):
