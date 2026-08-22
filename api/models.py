@@ -61,6 +61,11 @@ class Well(Base):
     friction_multiplier = Column(Float, nullable=False, default=1.0,
                                  server_default="1.0")
 
+    # Oil-well extension (Fase I): "gas" | "oil"
+    well_type = Column(String(8), nullable=False, default="gas",
+                       server_default="gas")
+    oil_api = Column(Float)          # API gravity when well_type=oil
+
     # Houpeurt coefficients (used when no deliverability test is stored)
     a_coef = Column(Float)
     b_coef = Column(Float)

@@ -3,10 +3,12 @@
 import datetime as _dt
 from typing import List, Optional
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, \
+    model_validator
 
 VLP_MODELS = ("beggs_brill", "dry_rk2", "avg_tz")
 LOAD_METHODS = ("turner", "coleman")
+WELL_TYPES = ("gas", "oil")
 
 
 # ------------------------------------------------------------------
@@ -37,6 +39,12 @@ class WellBase(BaseModel):
         default=1.0, gt=0.0, le=10.0,
         description="Beggs-Brill friction calibration (1.0 = virgin)")
 
+    well_type: str = Field(default="gas",
+                           description="'gas' or 'oil' (Fase I)")
+    oil_api: Optional[float] = Field(
+        default=None, gt=6.0, le=70.0,
+        description="Oil API gravity (required when well_type=oil)")
+
     a_coef: Optional[float] = Field(
         default=None, description="Houpeurt a [psia^2/(Mscf/D)]")
     b_coef: Optional[float] = Field(
@@ -65,6 +73,12 @@ class WellBase(BaseModel):
                 "load_method must be one of {}".format(LOAD_METHODS))
         return v
 
+    @model_validator(mode="after")
+    def _oil_api_required_for_oil(self):
+        if self.well_type == "oil" and self.oil_api is None:
+            raise ValueError("oil_api is required when well_type='oil'")
+        return self
+
 
 class WellCreate(WellBase):
     pass
@@ -87,8 +101,18 @@ class WellUpdate(BaseModel):
     load_method: Optional[str] = None
     friction_multiplier: Optional[float] = Field(default=None, gt=0.0,
                                                  le=10.0)
+    well_type: Optional[str] = None
+    oil_api: Optional[float] = Field(default=None, gt=6.0, le=70.0)
     a_coef: Optional[float] = None
     b_coef: Optional[float] = None
+
+    @field_validator("well_type")
+    @classmethod
+    def _wtype_valid(cls, v):
+        if v is not None and v not in WELL_TYPES:
+            raise ValueError("well_type must be one of {}".format(
+                WELL_TYPES))
+        return v
 
 
 class WellOut(WellBase):

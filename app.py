@@ -52,6 +52,15 @@ from math_engine.recommendations import (
 from math_engine.data_quality import validate_well_inputs
 from math_engine.economics import CATALOG, evaluate_intervention
 from math_engine.reporting import build_report
+from math_engine.oil_pvt import (
+    standing_solution_gor,
+    standing_bubble_point,
+    oil_viscosity,
+    vogel_qo_max,
+    vogel_curve,
+    validate_ranges,
+)
+from math_engine.artificial_lift import size_esp, rod_pump_check
 
 # ==========================================
 # PAGE CONFIGURATION
@@ -259,9 +268,10 @@ if vlp_note:
 # ==========================================
 # DASHBOARD TABS
 # ==========================================
-tab1, tab2, tab3, tab4, tab5 = st.tabs([
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
     "🚨 Liquid Loading", "⚖️ Análisis Nodal", "📉 Perfil de Presión",
-    "🔮 Pronóstico y Health Score", "🔧 Recomendaciones"])
+    "🔮 Pronóstico y Health Score", "🔧 Recomendaciones",
+    "🛢️ Petróleo (IPR / ESP / Bombeo)"])
 
 # ------------------------------------------
 # TAB 1: LIQUID LOADING DIAGNOSTIC
@@ -651,3 +661,147 @@ with tab5:
         "Lógica Step 2.4: espuma/capilar para carga leve con poca agua · "
         "plunger lift para carga intermitente · velocity string o bombeo "
         "para carga severa con alta agua. Costos referenciales US onshore.")
+
+# ------------------------------------------
+# TAB 6: OIL WELLS (Fase I)
+# ------------------------------------------
+with tab6:
+    st.header("Pozos de Petróleo - PVT, IPR y Levantamiento Artificial")
+    st.caption("Correlaciones: Standing (Rs/Pb/Bo), Beggs-Robinson "
+               "(viscosidad), Vogel (IPR). Unidades de campo.")
+
+    c1, c2, c3 = st.columns(3)
+    oil_api = c1.number_input("API del aceite", 10.0, 60.0, 32.0, 0.5)
+    gor = c2.number_input("GOR (scf/STB)", 0.0, 3000.0, 500.0, 25.0)
+    water_cut_oil = c3.slider("Water cut", 0.0, 1.0, 0.30, 0.05)
+
+    with st.expander("Prueba de producción (calibración Vogel)",
+                     expanded=True):
+        t1, t2 = st.columns(2)
+        qo_test = t1.number_input("qo de prueba (STB/D)", 1.0, 20000.0,
+                                  500.0, 25.0)
+        pwf_test = t2.number_input("Pwf de prueba (psia)", 1.0,
+                                   float(p_res) - 1.0,
+                                   float(p_res * 0.5), 25.0)
+
+    try:
+        rs_at_p = standing_solution_gor(p_res, t_res_f, oil_api, gamma_g)
+        pb_res = standing_bubble_point(rs_at_p, t_res_f, oil_api,
+                                       gamma_g)
+        vis = oil_viscosity(p_res, pb_res, t_res_f, oil_api, gamma_g,
+                            oil_sg=141.5 / (oil_api + 131.5))
+        qo_max = vogel_qo_max(qo_test, pwf_test, p_res)
+
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("Pb (Standing)", "{:.0f} psia".format(pb_res))
+        m2.metric("Rs @ p_res",
+                  "{:.0f} scf/STB".format(rs_at_p))
+        m3.metric("mu_o @ p_res",
+                  "{:.3f} cp ({})".format(vis["mu_o_cp"],
+                                          "saturado"
+                                          if p_res <= pb_res
+                                          else "subsaturado"))
+        m4.metric("qo_max (Vogel)",
+                  "{:.0f} STB/D".format(qo_max))
+
+        fig_ipr = go.Figure()
+        pts = vogel_curve(qo_max, p_res)
+        fig_ipr.add_trace(go.Scatter(
+            x=[p_["qo_stb_d"] for p_ in pts],
+            y=[p_["pwf_psia"] for p_ in pts],
+            mode="lines+markers", name="IPR Vogel"))
+        fig_ipr.add_trace(go.Scatter(
+            x=[qo_test], y=[pwf_test], mode="markers",
+            marker=dict(color="red", size=12), name="Prueba"))
+        fig_ipr.update_layout(
+            title="IPR de petróleo (Vogel)",
+            xaxis_title="qo (STB/D)", yaxis_title="Pwf (psia)",
+            template="plotly_white", height=380)
+        st.plotly_chart(fig_ipr, use_container_width=True)
+
+        for w in validate_ranges(t_res_f, oil_api, rs_at_p):
+            st.warning(w)
+    except ValueError as exc:
+        st.error("Entrada invalida: {}".format(exc))
+        qo_max = None
+
+    st.markdown("---")
+    left, right = st.columns(2)
+    with left:
+        st.subheader("⚡ ESP (Gould simplificado)")
+        esp_rate = st.number_input("Tasa objetivo total (STB/D)",
+                                   10.0, 30000.0, 800.0, 50.0,
+                                   key="esp_rate")
+        esp_thp = st.number_input("THP deseada (psia)", 0.0, 3000.0,
+                                  150.0, 10.0, key="esp_thp")
+        esp_depth = st.number_input("Profundidad de bomba (ft)",
+                                    500.0, float(tvd),
+                                    float(tvd * 0.9), 100.0,
+                                    key="esp_depth")
+        if st.button("Dimensionar ESP") and qo_max is not None:
+            try:
+                esp = size_esp(
+                    {"p_res": float(p_res), "t_res_f": t_res_f,
+                     "tvd_ft": tvd, "api_gravity": oil_api,
+                     "gamma_g": gamma_g, "gor_scf_stb": gor},
+                    target_rate_stb_d=esp_rate,
+                    qo_max_stb_d=qo_max,
+                    water_cut=water_cut_oil,
+                    thp_psia=esp_thp,
+                    pump_depth_ft=esp_depth)
+                e1, e2, e3 = st.columns(3)
+                e1.metric("PIP", "{:.0f} psia".format(
+                    esp["intake_psi"]))
+                e2.metric("Descarga", "{:.0f} psia".format(
+                    esp["discharge_psi"]))
+                e3.metric("TDH", "{:.0f} ft".format(esp["tdh_ft"]))
+                f1, f2, f3 = st.columns(3)
+                f1.metric("Etapas", esp["stages"])
+                f2.metric("HP motor req.",
+                          "{:.0f}".format(esp["motor_hp_required"]))
+                f3.metric("HP comercial",
+                          esp["motor_hp_recommended"] or ">250")
+                for wn in esp["warnings"]:
+                    st.warning(wn)
+            except ValueError as exc:
+                st.error(str(exc))
+
+    with right:
+        st.subheader("🔧 Bombeo mecánico (checklist)")
+        rp_rate = st.number_input("Tasa objetivo (STB/D)",
+                                  10.0, 30000.0, 400.0, 50.0,
+                                  key="rp_rate")
+        r1, r2, r3 = st.columns(3)
+        rp_d = r1.number_input("Plunger (in)", 1.06, 3.75, 1.75, 0.0625)
+        rp_s = r2.number_input("Carrera (in)", 12.0, 300.0, 86.0, 1.0)
+        rpm_n = r3.number_input("SPM", 4.0, 12.0, 8.0, 0.5)
+        rp_depth = st.number_input("Profundidad de bomba (ft)",
+                                   500.0, 12000.0,
+                                   min(float(tvd), 12000.0), 100.0,
+                                   key="rp_depth")
+        if st.button("Evaluar bombeo mecánico"):
+            try:
+                rp = rod_pump_check(
+                    {"p_res": float(p_res), "t_res_f": t_res_f,
+                     "tvd_ft": tvd, "api_gravity": oil_api,
+                     "gamma_g": gamma_g},
+                    target_rate_stb_d=rp_rate,
+                    water_cut=water_cut_oil,
+                    pump_depth_ft=rp_depth,
+                    plunger_dia_in=float(rp_d),
+                    stroke_len_in=float(rp_s),
+                    spm=float(rpm_n))
+                g1, g2, g3 = st.columns(3)
+                g1.metric("PD", "{:.0f} bpd".format(
+                    rp["pump_displacement_bpd"]))
+                g2.metric("Disponible", "{:.0f} bpd".format(
+                    rp["achievable_rate_bpd"]))
+                g3.metric("HP hidráulico", "{:.1f}".format(
+                    rp["hydraulic_hp"]))
+                st.markdown("**Veredicto: {}**".format(rp["verdict"]))
+                for chk in rp["checks"]:
+                    icon = "✅" if chk["ok"] else "⚠️"
+                    st.markdown("{} **{}** — {}".format(
+                        icon, chk["check"], chk["note"]))
+            except ValueError as exc:
+                st.error(str(exc))
