@@ -157,3 +157,41 @@ class TestCalibrationEndpoint:
         assert r.status_code == 200
         body = r.json()
         assert body["n_points"] == 0 and body["note"]
+
+
+class TestEconomicsAndReport:
+    MB = {"gp_mmscf": [0.0, 800.0, 1800.0, 2600.0],
+          "p_psia": [4200.0, 3400.0, 2700.0, 2200.0]}
+
+    def test_economics_velocity_string(self, client, tested_well_id):
+        r = client.post("/api/wells/{}/analysis/economics".format(
+            tested_well_id), json=dict(self.MB,
+                                       intervention="velocity_string",
+                                       target_tubing_id_in=1.5))
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["label"]
+        assert body["cost_usd"] > 0
+        assert body["incremental_gas_mmscf"] >= 0.0
+        assert body["npv_usd"] is not None
+
+    def test_economics_missing_override_422(self, client, tested_well_id):
+        r = client.post("/api/wells/{}/analysis/economics".format(
+            tested_well_id), json=dict(self.MB, intervention="compression"))
+        assert r.status_code == 422
+
+    def test_economics_bad_mb_422(self, client, tested_well_id):
+        bad = dict(self.MB, p_psia=[2200.0, 2700.0],
+                   intervention="compression", target_p_wh_psia=150.0)
+        r = client.post("/api/wells/{}/analysis/economics".format(
+            tested_well_id), json=bad)
+        assert r.status_code == 422
+
+    def test_report_pdf_bytes(self, client, tested_well_id):
+        url = ("/api/wells/{}/analysis/report.pdf?gp=0,800,1800,2600"
+               "&p=4200,3400,2700,2200").format(tested_well_id)
+        r = client.get(url)
+        assert r.status_code == 200, r.text
+        assert r.headers["content-type"].startswith("application/pdf")
+        assert r.content[:5] == b"%PDF-"
+        assert len(r.content) > 1000

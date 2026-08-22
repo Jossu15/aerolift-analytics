@@ -50,6 +50,8 @@ from math_engine.recommendations import (
     recommend_interventions,
 )
 from math_engine.data_quality import validate_well_inputs
+from math_engine.economics import CATALOG, evaluate_intervention
+from math_engine.reporting import build_report
 
 # ==========================================
 # PAGE CONFIGURATION
@@ -507,6 +509,117 @@ with tab4:
         xaxis_title="Día", yaxis_title="Qgas natural (Mscf/D)",
         template="plotly_white", height=450)
     st.plotly_chart(fig_fc, use_container_width=True)
+
+    # ---- Economía de intervención (Fase G) ----
+    st.markdown("---")
+    with st.expander("💰 Economía de intervención (what-if físico)"):
+        col_i, col_p = st.columns(2)
+        interv = col_i.selectbox("Intervención",
+                                 ("velocity_string", "compression"))
+        price = col_p.number_input("Precio del gas ($/Mscf)", 0.5, 20.0,
+                                   3.5, 0.25)
+        target_id = target_pwh = None
+        if interv == "velocity_string":
+            max_id = max(tubing_id - 0.05, 0.95)
+            target_id = st.number_input(
+                "ID objetivo velocity string (in)", 0.9,
+                max_id,
+                min(max(1.5, 1.0), round(max_id, 3)), 0.05)
+        else:
+            target_pwh = st.number_input(
+                "P_wh con compresión (psia)", 30.0,
+                float(p_wh) - 10.0, float(max(60.0, p_wh * 0.6)), 10.0)
+        cost = st.number_input(
+            "Costo de intervención (USD)", 1000.0, 2000000.0,
+            float(CATALOG[interv]["default_cost_usd"]), 5000.0)
+
+        econ_params = {
+            "p_wh": float(p_wh), "t_wh_f": float(t_wh_f),
+            "t_res_f": float(t_res_f), "tvd_ft": tvd,
+            "tubing_id_in": tubing_id, "gamma_g": gamma_g,
+            "q_water_bpd": q_water, "liquid_sg": liquid_sg,
+            "vlp_model": "beggs_brill" if use_bb else "dry_rk2",
+            "load_method": load_method, "friction_multiplier": fr_mult,
+            "q_gas_nominal_mscfd": q_gas,
+            "ipr": (("rs", {"C": rs_data["C"], "n": rs_data["n"]})
+                    if rs_data else
+                    ("houpeurt", {"a": a_coef, "b": b_coef})),
+        }
+        if st.button("Calcular ROI / NPV"):
+            try:
+                econ = evaluate_intervention(
+                    econ_params, gp_hist, p_hist, interv,
+                    gas_price_usd_mcf=price, cost_usd=cost,
+                    time_step_days=30.0,
+                    target_tubing_id_in=target_id,
+                    target_p_wh_psia=target_pwh)
+                m1, m2, m3, m4 = st.columns(4)
+                m1.metric("Gas incremental",
+                          "{:.0f} MMscf".format(
+                              econ["incremental_gas_mmscf"]))
+                m2.metric("NPV (10% anual)",
+                          "${:,.0f}".format(econ["npv_usd"]))
+                m3.metric("ROI", "{:.0f}%".format(econ["roi_pct"])
+                          if econ["roi_pct"] is not None else "n/a")
+                m4.metric("Payback",
+                          "{} meses".format(econ["payback_months"])
+                          if econ["payback_months"] else "> horizonte")
+                ext = econ["life_extension_days"]
+                st.caption("Días de vida extra del pozo: {}".format(
+                    "{:.0f}".format(ext) if ext is not None else "n/a"))
+                st.session_state["last_econ"] = econ
+            except ValueError as exc:
+                st.error(str(exc))
+
+    # ---- Reporte PDF (un clic, misma física que la API) ----
+    report_sections = [("Datos del pozo", [
+        "P_res {:.0f} psia | T_res {:.0f} F | gamma_g {:.2f}".format(
+            p_res, t_res, gamma_g),
+        "TVD {:.0f} ft | ID {:.3f} in | P_wh {:.0f} psia | "
+        "agua {:.0f} bbl/D".format(tvd, tubing_id, p_wh, q_water),
+        "VLP {} | metodo {} | friccion x{:.2f}".format(
+            vlp_model, load_method, fr_mult),
+    ])]
+    report_sections.append(("Veredicto liquid loading @ q actual "
+                            "{:.0f} Mscf/D".format(q_gas), [
+        "Cargando: {} | Severidad: {}".format(
+            "SI" if load_res["is_loading"] else "NO", severity),
+        "v_actual {:.2f} vs v_critico {:.2f} ft/s".format(
+            load_res["v_actual_ft_s"], load_res["v_crit_ft_s"]),
+        "Accion sugerida: {}".format(
+            advice["actions"][0]["action"] if advice["actions"] else "-"),
+    ]))
+    if nodal:
+        report_sections.append(("Analisis nodal", [
+            "Punto natural: q={:.0f} Mscf/D @ Pwf={:.0f} psia".format(
+                nodal["q_mscfd"], nodal["Pwf_psia"])]))
+    bad_row_fc = next((r for r in history if r["status"] != "flowing"),
+                      None)
+    days_to_risk = int(bad_row_fc["day"]) if bad_row_fc is not None \
+        and history[0]["status"] == "flowing" else None
+    report_sections.append(("Pronostico p/z", [
+        "OGIP ~{:.0f} MMscf | Pi/Zi {:.0f} psia".format(G, intercept_mb),
+        "Dias hasta riesgo de loading: {}".format(
+            days_to_risk if days_to_risk is not None
+            else "sin muerte en horizonte"),
+    ]))
+    last_econ = st.session_state.get("last_econ")
+    if last_econ:
+        report_sections.append(("Economia ultima intervencion", [
+            "Gas incremental: {:.0f} MMscf | NPV: ${:,.0f}".format(
+                last_econ["incremental_gas_mmscf"],
+                last_econ["npv_usd"]),
+            "ROI: {} | Payback: {}".format(
+                "{:.0f}%".format(last_econ["roi_pct"])
+                if last_econ["roi_pct"] is not None else "n/a",
+                "{} meses".format(last_econ["payback_months"])
+                if last_econ["payback_months"] else "> horizonte"),
+        ]))
+    pdf_bytes = build_report(
+        "AeroLift Analytics - Reporte de pozo",
+        "generado desde el dashboard", report_sections)
+    st.download_button("Descargar reporte PDF", pdf_bytes,
+                       "aerolift_reporte.pdf", "application/pdf")
 
     with st.expander("Tabla del pronóstico"):
         rows = [{"Día": r["day"], "Gp (MMscf)": round(r["Gp"]),

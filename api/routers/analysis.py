@@ -1,14 +1,17 @@
-"""Physics analyses over stored wells: loading, nodal, traverse, forecast."""
+"""Physics analyses over stored wells: loading, nodal, traverse,
+forecast, calibration, economics, PDF report."""
 
+import datetime
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from api import crud, engines, models
 from api.auth import get_current_key, owns_well, require_tier
 from api.database import get_db
+from math_engine import economics as econ_engine
 
 router = APIRouter(prefix="/api/wells/{well_id}/analysis", tags=["analysis"])
 
@@ -95,6 +98,34 @@ class CalibrationOut(BaseModel):
     mae_pct: Optional[float] = None
     points: List[CalibrationPoint] = []
     note: Optional[str] = None
+
+
+class EconomicsIn(BaseModel):
+    gp_mmscf: List[float] = Field(min_length=2)
+    p_psia: List[float] = Field(min_length=2)
+    intervention: str = "velocity_string"
+    target_tubing_id_in: Optional[float] = Field(default=None, gt=0.5,
+                                                 lt=3.0)
+    target_p_wh_psia: Optional[float] = Field(default=None, gt=0)
+    gas_price_usd_mcf: float = Field(default=3.5, gt=0, le=50)
+    cost_usd: Optional[float] = Field(default=None, gt=0)
+    time_step_days: int = Field(default=30, ge=1, le=365)
+
+
+class EconomicsOut(BaseModel):
+    intervention: str
+    label: str
+    cost_usd: float
+    base_death_day: Optional[float] = None
+    intervention_death_day: Optional[float] = None
+    life_extension_days: Optional[float] = None
+    base_cum_mmscf: float
+    intervention_cum_mmscf: float
+    incremental_gas_mmscf: float
+    gross_revenue_usd: float
+    npv_usd: float
+    roi_pct: Optional[float] = None
+    payback_months: Optional[int] = None
 
 
 @router.get("/loading", response_model=LoadingOut)
@@ -210,3 +241,156 @@ def calibration(well_id: int,
         mae_pct=(sum(abs(d) for d in deltas) / len(deltas)
                  if deltas else None),
         points=points)
+
+
+@router.post("/economics", response_model=EconomicsOut)
+def economics(well_id: int, payload: EconomicsIn,
+              key: models.ApiKey = Depends(require_tier("pro")),
+              db: Session = Depends(get_db)):
+    """
+    What-if economics of an intervention, re-running the full physics
+    forecast on the modified completion:
+
+        velocity_string -> smaller tubing ID (higher velocity)
+        compression     -> lower wellhead pressure (more drawdown)
+
+    Incremental gas vs the do-nothing baseline is valued at
+    gas_price_usd_mcf and discounted against the intervention cost.
+    """
+    well = _well_or_404(db, well_id, key)
+    if len(payload.gp_mmscf) != len(payload.p_psia):
+        raise HTTPException(422, "gp_mmscf and p_psia length mismatch")
+    if any(p2 >= p1 for p1, p2 in zip(payload.p_psia,
+                                      payload.p_psia[1:])):
+        raise HTTPException(422, "p_psia must be strictly decreasing")
+
+    params = {
+        "p_wh": float(well.p_wh),
+        "t_wh_f": float(well.t_wh_f),
+        "t_res_f": float(well.t_res_f),
+        "tvd_ft": float(well.tvd_ft),
+        "tubing_id_in": float(well.tubing_id_in),
+        "gamma_g": float(well.gamma_g),
+        "q_water_bpd": float(well.q_water_bpd or 0.0),
+        "liquid_sg": float(well.liquid_sg),
+        "vlp_model": well.vlp_model,
+        "load_method": well.load_method,
+        "friction_multiplier":
+            float(getattr(well, "friction_multiplier", None) or 1.0),
+        "q_gas_nominal_mscfd": float(well.q_gas_nominal_mscfd or 0.0),
+        "ipr": engines.ipr_spec(db, well),
+    }
+    try:
+        result = econ_engine.evaluate_intervention(
+            params, payload.gp_mmscf, payload.p_psia, payload.intervention,
+            gas_price_usd_mcf=payload.gas_price_usd_mcf,
+            cost_usd=payload.cost_usd,
+            time_step_days=float(payload.time_step_days),
+            target_tubing_id_in=payload.target_tubing_id_in,
+            target_p_wh_psia=payload.target_p_wh_psia)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc))
+    return EconomicsOut(**result)
+
+
+def _csv_floats(text: Optional[str]) -> Optional[List[float]]:
+    if not text:
+        return None
+    try:
+        vals = [float(x) for x in
+                str(text).replace(";", ",").split(",") if x.strip()]
+    except ValueError:
+        return None
+    return vals if len(vals) >= 2 else None
+
+
+@router.get("/report.pdf")
+def report_pdf(well_id: int,
+               gp: Optional[str] = Query(default=None,
+                                         description="comma Gp MMscf"),
+               p: Optional[str] = Query(default=None,
+                                        description="comma P psia"),
+               key: models.ApiKey = Depends(require_tier("pro")),
+               db: Session = Depends(get_db)):
+    """One-page PDF summary (loading verdict, nodal, forecast)."""
+    from math_engine.reporting import build_report
+
+    well = _well_or_404(db, well_id, key)
+    sections = [("Datos del pozo", [
+        "Tag: {}   Nombre: {}".format(well.tag, well.name or "-"),
+        "P_res {:.0f} psia | T_res {:.0f} F | gamma_g {:.2f}".format(
+            well.p_res, well.t_res_f, well.gamma_g),
+        "TVD {:.0f} ft | ID {:.3f} in | P_wh {:.0f} psia | "
+        "agua {:.0f} bbl/D".format(well.tvd_ft, well.tubing_id_in,
+                                   well.p_wh, well.q_water_bpd or 0.0),
+        "VLP {} | metodo {} | friccion x{:.2f}".format(
+            well.vlp_model, well.load_method,
+            float(getattr(well, "friction_multiplier", None) or 1.0)),
+    ])]
+
+    q_nom = well.q_gas_nominal_mscfd or 0.0
+    if q_nom > 0:
+        snap = engines.loading_snapshot(well, q_nom)
+        margin = snap["margin_pct"]
+        sections.append((
+            "Liquid loading @ nominal {:.0f} Mscf/D".format(q_nom), [
+                "Veredicto: {}".format("CARGANDO" if snap["is_loading"]
+                                       else "Estable"),
+                "Severidad: {} | margen: {}".format(
+                    snap["severity"],
+                    "{:.0f}%".format(margin) if margin is not None
+                    else "n/a"),
+                "v_actual {:.2f} vs v_critico {:.2f} ft/s | q_critico "
+                "{:.0f} Mscf/D".format(snap["v_actual_ft_s"],
+                                       snap["v_crit_ft_s"],
+                                       snap["q_crit_mscfd"]),
+                "Accion sugerida: {}".format(snap["first_action"] or "-"),
+            ]))
+
+    try:
+        result, _spec = engines.natural_flow_point(db, well)
+        lines = []
+        if result:
+            lines.append("Punto natural: q={:.0f} Mscf/D @ Pwf={:.0f} psia"
+                         .format(result["q_mscfd"], result["Pwf_psia"]))
+            for itp in result["all_intersections"]:
+                lines.append("Interseccion IPR-VLP: q={:.0f} Mscf/D @ "
+                             "Pwf={:.0f} psia".format(itp["q_mscfd"],
+                                                      itp["Pwf_psia"]))
+            if "note" in result:
+                lines.append("Nota: {}".format(result["note"]))
+        else:
+            lines.append("Sin flujo natural con la configuracion actual")
+        sections.append(("Analisis nodal (IPR/VLP)", lines))
+    except Exception as exc:
+        sections.append(("Analisis nodal", ["no disponible: {}".format(exc)]))
+
+    gp_list, p_list = _csv_floats(gp), _csv_floats(p)
+    if gp_list and p_list and len(gp_list) == len(p_list):
+        try:
+            fc = engines.forecast_from_history(db, well, gp_list, p_list)
+            lines = ["OGIP ~{:.0f} MMscf | Pi/Zi {:.0f} psia".format(
+                fc["ogip_mmscf"], fc["pi_over_zi_psia"])]
+            days = fc["days_to_risk"]
+            lines.append("Dias hasta riesgo de loading: {}".format(
+                days if days is not None else "sin muerte en horizonte"))
+            step = max(1, len(fc["history"]) // 6)
+            for row in fc["history"][::step][:6]:
+                lines.append("dia {:5.0f} | Pr {:5.0f} psia | q {:5.0f} "
+                             "Mscf/D -> {}".format(row["day"], row["Pr"],
+                                                   row["q_mscfd"],
+                                                   row["status"]))
+            sections.append(("Pronostico p/z + health score", lines))
+        except ValueError as exc:
+            sections.append(("Pronostico p/z",
+                             ["datos invalidos: {}".format(exc)]))
+
+    pdf_bytes = build_report(
+        "AeroLift Analytics - Reporte de pozo",
+        "{} | generado {}".format(well.tag,
+                                  datetime.date.today().isoformat()),
+        sections)
+    filename = "aerolift_well_{}.pdf".format(well_id)
+    return Response(content=pdf_bytes, media_type="application/pdf",
+                    headers={"Content-Disposition":
+                             'inline; filename="{}"'.format(filename)})
