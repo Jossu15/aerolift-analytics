@@ -8,6 +8,9 @@ Interactive docs:
 
 Database: DATABASE_URL env var (default sqlite:///./aerolift.db;
 for PostgreSQL install psycopg2-binary and point the URL there).
+
+Auth: every /api/* endpoint requires X-API-Key (mint keys with
+scripts/mint_key.py). /health and / stay open for liveness probes.
 """
 
 from contextlib import asynccontextmanager
@@ -16,7 +19,7 @@ from fastapi import FastAPI
 
 from api import __version__
 from api.database import init_db
-from api.routers import analysis, scada, wells
+from api.routers import analysis, auth, scada, wells
 
 
 @asynccontextmanager
@@ -34,6 +37,7 @@ def create_app() -> FastAPI:
                     "contract for dashboards and SCADA historians.",
         version=__version__,
         lifespan=lifespan)
+    app.include_router(auth.router)
     app.include_router(wells.router)
     app.include_router(analysis.router)
     app.include_router(scada.router)

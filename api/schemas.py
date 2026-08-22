@@ -89,6 +89,7 @@ class WellOut(WellBase):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
+    owner_key_id: Optional[int] = None
     created_at: Optional[_dt.datetime] = None
 
 

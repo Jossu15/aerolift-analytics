@@ -12,10 +12,29 @@ def _utcnow():
     return datetime.now(timezone.utc)
 
 
+class ApiKey(Base):
+    """API credential - only the SHA-256 of the raw key is stored.
+
+    The raw key is handed to the operator/historian once (mint_key script);
+    every request must present it in the X-API-Key header.
+    """
+    __tablename__ = "api_keys"
+
+    id = Column(Integer, primary_key=True)
+    key_hash = Column(String(64), unique=True, nullable=False, index=True)
+    label = Column(String(128), nullable=False)
+    field_name = Column(String(128))
+    tier = Column(String(8), nullable=False, default="basic")  # basic | pro
+    is_active = Column(Boolean, nullable=False, default=True)
+    created_at = Column(DateTime, default=_utcnow)
+
+
 class Well(Base):
     __tablename__ = "wells"
 
     id = Column(Integer, primary_key=True)
+    owner_key_id = Column(Integer, ForeignKey("api_keys.id"), index=True,
+                          nullable=True)  # NULL = legacy/pre-auth row
     tag = Column(String(64), unique=True, nullable=False, index=True)
     name = Column(String(128))
 

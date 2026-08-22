@@ -9,12 +9,14 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from api import crud, engines, schemas
+from api import crud, engines, models, schemas
+from api.auth import get_current_key, owns_well
 from api.database import get_db
 from math_engine.data_quality import validate_well_inputs
 from math_engine.ipr import fit_rawlins_schellhardt
 
-router = APIRouter(prefix="/api/wells", tags=["wells"])
+router = APIRouter(prefix="/api/wells", tags=["wells"],
+                   dependencies=[Depends(get_current_key)])
 
 # CSV header aliases -> canonical field
 _CSV_ALIASES = {
@@ -41,9 +43,11 @@ def _gigo_errors(well_like: dict):
         if i["severity"] == "error"]
 
 
-def _get_well_or_404(db: Session, well_id: int):
+def _get_well_or_404(db: Session, well_id: int,
+                     key: models.ApiKey):
+    """Fetch the well and enforce ownership (404 avoids leaking ids)."""
     well = crud.get_well(db, well_id)
-    if well is None:
+    if well is None or not owns_well(well, key):
         raise HTTPException(404, "well {} not found".format(well_id))
     return well
 
@@ -52,14 +56,16 @@ def _get_well_or_404(db: Session, well_id: int):
 # CRUD
 # ------------------------------------------------------------------
 @router.post("", response_model=schemas.WellOut, status_code=201)
-def create_well(payload: schemas.WellCreate, db: Session = Depends(get_db)):
+def create_well(payload: schemas.WellCreate,
+                key: models.ApiKey = Depends(get_current_key),
+                db: Session = Depends(get_db)):
     errors = _gigo_errors(payload.model_dump())
     if errors:
         raise HTTPException(422, detail={
             "message": "physically impossible inputs (GIGO)",
             "issues": errors})
     try:
-        return crud.create_well(db, payload)
+        return crud.create_well(db, payload, owner_key_id=key.id)
     except IntegrityError:
         db.rollback()
         raise HTTPException(409,
@@ -69,19 +75,23 @@ def create_well(payload: schemas.WellCreate, db: Session = Depends(get_db)):
 
 @router.get("", response_model=List[schemas.WellOut])
 def list_wells(limit: int = 200, offset: int = 0,
+               key: models.ApiKey = Depends(get_current_key),
                db: Session = Depends(get_db)):
-    return crud.list_wells(db, limit=limit, offset=offset)
+    return crud.list_wells(db, limit=limit, offset=offset,
+                           owner_key_id=key.id)
 
 
 @router.get("/{well_id}", response_model=schemas.WellOut)
-def get_well(well_id: int, db: Session = Depends(get_db)):
-    return _get_well_or_404(db, well_id)
+def get_well(well_id: int, key: models.ApiKey = Depends(get_current_key),
+             db: Session = Depends(get_db)):
+    return _get_well_or_404(db, well_id, key)
 
 
 @router.patch("/{well_id}", response_model=schemas.WellOut)
 def update_well(well_id: int, payload: schemas.WellUpdate,
+                key: models.ApiKey = Depends(get_current_key),
                 db: Session = Depends(get_db)):
-    well = _get_well_or_404(db, well_id)
+    well = _get_well_or_404(db, well_id, key)
     merged = {c: getattr(well, c) for c in
               ("p_res", "t_res_f", "gamma_g", "p_wh", "t_wh_f", "tvd_ft",
                "tubing_id_in", "q_water_bpd", "liquid_sg",
@@ -97,8 +107,9 @@ def update_well(well_id: int, payload: schemas.WellUpdate,
 
 
 @router.delete("/{well_id}", status_code=204)
-def delete_well(well_id: int, db: Session = Depends(get_db)):
-    well = _get_well_or_404(db, well_id)
+def delete_well(well_id: int, key: models.ApiKey = Depends(get_current_key),
+                db: Session = Depends(get_db)):
+    well = _get_well_or_404(db, well_id, key)
     crud.delete_well(db, well)
 
 
@@ -109,8 +120,9 @@ def delete_well(well_id: int, db: Session = Depends(get_db)):
             response_model=schemas.DeliverabilityTestOut)
 def put_deliverability_test(well_id: int,
                             payload: schemas.DeliverabilityTestIn,
+                            key: models.ApiKey = Depends(get_current_key),
                             db: Session = Depends(get_db)):
-    well = _get_well_or_404(db, well_id)
+    well = _get_well_or_404(db, well_id, key)
     if len(payload.pwf_psia) != len(payload.q_mscfd):
         raise HTTPException(422,
                             "pwf_psia and q_mscfd must have equal length")
@@ -136,8 +148,10 @@ def put_deliverability_test(well_id: int,
 
 
 @router.get("/{well_id}/deliverability-test")
-def get_deliverability_test(well_id: int, db: Session = Depends(get_db)):
-    _get_well_or_404(db, well_id)
+def get_deliverability_test(well_id: int,
+                            key: models.ApiKey = Depends(get_current_key),
+                            db: Session = Depends(get_db)):
+    _get_well_or_404(db, well_id, key)
     row = crud.get_test(db, well_id)
     if row is None:
         raise HTTPException(404, "no deliverability test stored")
@@ -182,6 +196,7 @@ def _parse_date(value: str):
 @router.post("/{well_id}/history/csv",
              response_model=schemas.HistoryUploadResult)
 async def upload_history_csv(well_id: int, request: Request,
+                             key: models.ApiKey = Depends(get_current_key),
                              db: Session = Depends(get_db)):
     """
     Upload production history as raw CSV text (Content-Type: text/csv).
@@ -189,7 +204,7 @@ async def upload_history_csv(well_id: int, request: Request,
     Required headers: date (+ alias) and gas rate (+ aliases); water rate
     and wellhead pressure optional. Invalid rows are skipped and reported.
     """
-    _get_well_or_404(db, well_id)
+    _get_well_or_404(db, well_id, key)
     body = (await request.body()).decode("utf-8-sig", errors="replace")
     if not body.strip():
         raise HTTPException(422, "empty CSV body")
@@ -232,6 +247,7 @@ async def upload_history_csv(well_id: int, request: Request,
 @router.get("/{well_id}/history",
             response_model=List[schemas.ProductionRecordOut])
 def get_history(well_id: int, limit: int = 5000,
+                key: models.ApiKey = Depends(get_current_key),
                 db: Session = Depends(get_db)):
-    _get_well_or_404(db, well_id)
+    _get_well_or_404(db, well_id, key)
     return crud.list_production(db, well_id, limit=limit)

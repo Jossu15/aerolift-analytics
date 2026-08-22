@@ -8,16 +8,27 @@ is returned immediately so the historian/alarm layer can act on it.
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from api import crud, engines, schemas
+from api import crud, engines, models, schemas
+from api.auth import get_current_key, owns_well
 from api.database import get_db
 from api.models import ScadaReading
 
-router = APIRouter(prefix="/api/scada", tags=["scada"])
+router = APIRouter(prefix="/api/scada", tags=["scada"],
+                   dependencies=[Depends(get_current_key)])
+
+
+def _tag_well_or_404(db: Session, tag: str, key: models.ApiKey):
+    well = crud.get_well_by_tag(db, tag)
+    if well is None or not owns_well(well, key):
+        raise HTTPException(404,
+                            "unknown well_tag '{}'".format(tag))
+    return well
 
 
 @router.post("/telemetry", response_model=schemas.TelemetryOut,
              status_code=201)
 def push_telemetry(payload: schemas.TelemetryIn,
+                   key: models.ApiKey = Depends(get_current_key),
                    db: Session = Depends(get_db)):
     """
     Ingest one real-time reading:
@@ -26,12 +37,10 @@ def push_telemetry(payload: schemas.TelemetryIn,
          "q_water_bpd": 30, "p_wh_psia": 195}
 
     The engine evaluates liquid loading at bottomhole conditions and
-    persists the verdict alongside the raw values.
+    persists the verdict alongside the raw values. The historian pushes
+    with the API key that owns the wells.
     """
-    well = crud.get_well_by_tag(db, payload.well_tag)
-    if well is None:
-        raise HTTPException(404,
-                            "unknown well_tag '{}'".format(payload.well_tag))
+    well = _tag_well_or_404(db, payload.well_tag, key)
 
     q_water = payload.q_water_bpd \
         if payload.q_water_bpd is not None else well.q_water_bpd
@@ -66,11 +75,10 @@ def push_telemetry(payload: schemas.TelemetryIn,
 
 
 @router.get("/status/{tag}", response_model=schemas.ScadaStatusOut)
-def status_by_tag(tag: str, db: Session = Depends(get_db)):
+def status_by_tag(tag: str, key: models.ApiKey = Depends(get_current_key),
+                  db: Session = Depends(get_db)):
     """Last stored telemetry + its engine verdict for a well tag."""
-    well = crud.get_well_by_tag(db, tag)
-    if well is None:
-        raise HTTPException(404, "unknown well_tag '{}'".format(tag))
+    well = _tag_well_or_404(db, tag, key)
 
     row = crud.last_scada_reading(db, well.id)
     if row is None:
@@ -101,11 +109,10 @@ def status_by_tag(tag: str, db: Session = Depends(get_db)):
 
 
 @router.delete("/status/{tag}", status_code=204)
-def purge_readings(tag: str, db: Session = Depends(get_db)):
+def purge_readings(tag: str, key: models.ApiKey = Depends(get_current_key),
+                   db: Session = Depends(get_db)):
     """Housekeeping: drop stored telemetry for a tag."""
-    well = crud.get_well_by_tag(db, tag)
-    if well is None:
-        raise HTTPException(404, "unknown well_tag '{}'".format(tag))
+    well = _tag_well_or_404(db, tag, key)
     db.query(ScadaReading).filter(
         ScadaReading.well_id == well.id).delete()
     db.commit()

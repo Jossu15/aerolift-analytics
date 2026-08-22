@@ -6,15 +6,16 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from api import crud, engines
+from api import crud, engines, models
+from api.auth import get_current_key, owns_well, require_tier
 from api.database import get_db
 
 router = APIRouter(prefix="/api/wells/{well_id}/analysis", tags=["analysis"])
 
 
-def _well_or_404(db: Session, well_id: int):
+def _well_or_404(db: Session, well_id: int, key: models.ApiKey):
     well = crud.get_well(db, well_id)
-    if well is None:
+    if well is None or not owns_well(well, key):
         raise HTTPException(404, "well {} not found".format(well_id))
     return well
 
@@ -82,9 +83,10 @@ class ForecastOut(BaseModel):
 @router.get("/loading", response_model=LoadingOut)
 def loading(well_id: int,
             q_gas_mscfd: Optional[float] = None,
+            key: models.ApiKey = Depends(get_current_key),
             db: Session = Depends(get_db)):
     """Turner/Coleman verdict; defaults to the well's nominal rate."""
-    well = _well_or_404(db, well_id)
+    well = _well_or_404(db, well_id, key)
     q = q_gas_mscfd if q_gas_mscfd is not None else \
         (well.q_gas_nominal_mscfd or 0.0)
     if q <= 0:
@@ -94,9 +96,10 @@ def loading(well_id: int,
 
 
 @router.get("/nodal", response_model=NodalOut)
-def nodal(well_id: int, db: Session = Depends(get_db)):
+def nodal(well_id: int, key: models.ApiKey = Depends(require_tier("pro")),
+          db: Session = Depends(get_db)):
     """IPR/VLP intersections - flags the liquid-loading J-curve signature."""
-    well = _well_or_404(db, well_id)
+    well = _well_or_404(db, well_id, key)
     result, spec = engines.natural_flow_point(db, well)
     out = NodalOut(ipr_source=spec[0], ipr_params=spec[1],
                    flows_naturally=result is not None)
@@ -113,9 +116,11 @@ def nodal(well_id: int, db: Session = Depends(get_db)):
 
 @router.get("/traverse", response_model=TraverseOut)
 def traverse(well_id: int, q_gas_mscfd: Optional[float] = None,
-             n_segments: int = 40, db: Session = Depends(get_db)):
+             n_segments: int = 40,
+             key: models.ApiKey = Depends(get_current_key),
+             db: Session = Depends(get_db)):
     """Pressure vs depth profile at the given (or nominal) rate."""
-    well = _well_or_404(db, well_id)
+    well = _well_or_404(db, well_id, key)
     if not (5 <= n_segments <= 200):
         raise HTTPException(422, "n_segments must be in [5, 200]")
     q = q_gas_mscfd if q_gas_mscfd is not None else \
@@ -128,9 +133,10 @@ def traverse(well_id: int, q_gas_mscfd: Optional[float] = None,
 
 @router.post("/forecast", response_model=ForecastOut)
 def forecast(well_id: int, payload: ForecastIn,
+             key: models.ApiKey = Depends(require_tier("pro")),
              db: Session = Depends(get_db)):
     """p/z material-balance decline + days-until-loading health score."""
-    well = _well_or_404(db, well_id)
+    well = _well_or_404(db, well_id, key)
     if len(payload.gp_mmscf) != len(payload.p_psia):
         raise HTTPException(422,
                             "gp_mmscf and p_psia must have equal length")

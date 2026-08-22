@@ -18,13 +18,17 @@ def get_well_by_tag(db: Session, tag: str) -> Optional[models.Well]:
 
 
 def list_wells(db: Session, limit: int = 200,
-               offset: int = 0) -> List[models.Well]:
-    return db.query(models.Well).order_by(models.Well.id).offset(offset) \
-        .limit(limit).all()
+               offset: int = 0,
+               owner_key_id: Optional[int] = None) -> List[models.Well]:
+    query = db.query(models.Well).order_by(models.Well.id)
+    if owner_key_id is not None:
+        query = query.filter(models.Well.owner_key_id == owner_key_id)
+    return query.offset(offset).limit(limit).all()
 
 
-def create_well(db: Session, data: schemas.WellCreate) -> models.Well:
-    well = models.Well(**data.model_dump())
+def create_well(db: Session, data: schemas.WellCreate,
+                owner_key_id: Optional[int] = None) -> models.Well:
+    well = models.Well(**data.model_dump(), owner_key_id=owner_key_id)
     db.add(well)
     db.commit()
     db.refresh(well)

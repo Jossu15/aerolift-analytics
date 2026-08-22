@@ -1,11 +1,19 @@
-"""Shared fixtures for API tests: TestClient + seeded demo wells."""
+"""Shared fixtures for API tests: authorized clients + seeded demo wells.
 
+The default `client` fixture carries a PRO-tier API key so pre-auth test
+bodies stay unchanged. `basic_client`, `extra_client` (another operator)
+and `anon_client` support the auth/tier/isolation tests.
+"""
+
+from types import SimpleNamespace
 import uuid
 
 import pytest
 from fastapi.testclient import TestClient
 
-from api.database import init_db
+from api import models
+from api.auth import generate_raw_key, hash_key
+from api.database import SessionLocal, init_db
 from api.main import create_app
 
 DEMO_WELL = {
@@ -31,11 +39,81 @@ TEST_POINTS = {
 }
 
 
+class _KeyClient(TestClient):
+    """TestClient that injects a default X-API-Key on every request."""
+
+    def __init__(self, *args, default_headers=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._default_headers = dict(default_headers or {})
+
+    def request(self, method, url, **kwargs):
+        headers = dict(self._default_headers)
+        headers.update(kwargs.pop("headers", None) or {})
+        return super().request(method, url, headers=headers, **kwargs)
+
+
+def _mint(label, tier):
+    """Insert an ApiKey row directly; return the raw (one-time) key."""
+    raw = generate_raw_key()
+    session = SessionLocal()
+    try:
+        session.add(models.ApiKey(key_hash=hash_key(raw), label=label,
+                                  tier=tier))
+        session.commit()
+    finally:
+        session.close()
+    return raw
+
+
 @pytest.fixture(scope="session")
-def client():
+def _clients():
     init_db()
-    with TestClient(create_app()) as c:
-        yield c
+    ns = SimpleNamespace(
+        pro_raw=_mint("AeroLift Tests Pro", "pro"),
+        basic_raw=_mint("AeroLift Tests Basic", "basic"),
+        extra_raw=_mint("Rival Operator", "pro"),
+    )
+    ns.anon = TestClient(create_app())
+    ns.basic = _KeyClient(create_app(),
+                          default_headers={"X-API-Key": ns.basic_raw})
+    ns.extra = _KeyClient(create_app(),
+                          default_headers={"X-API-Key": ns.extra_raw})
+    ns.pro = _KeyClient(create_app(),
+                        default_headers={"X-API-Key": ns.pro_raw})
+    with ns.pro:  # lifespan once; others work per-request
+        yield ns
+
+
+@pytest.fixture(scope="session")
+def client(_clients):
+    """Default authorized client (PRO tier)."""
+    return _clients.pro
+
+
+@pytest.fixture(scope="session")
+def basic_client(_clients):
+    return _clients.basic
+
+
+@pytest.fixture(scope="session")
+def extra_client(_clients):
+    return _clients.extra
+
+
+@pytest.fixture(scope="session")
+def anon_client(_clients):
+    return _clients.anon
+
+
+@pytest.fixture()
+def mint_key():
+    """Mint ad-hoc keys inside a test: mint_key(label, tier) -> raw."""
+    return _mint
+
+
+@pytest.fixture(scope="session")
+def pro_headers(_clients):
+    return {"X-API-Key": _clients.pro_raw}
 
 
 @pytest.fixture()
