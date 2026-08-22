@@ -19,7 +19,7 @@ from fastapi import FastAPI
 
 from api import __version__
 from api.database import init_db
-from api.routers import analysis, auth, scada, wells
+from api.routers import analysis, auth, ml, scada, wells
 
 
 @asynccontextmanager
@@ -40,6 +40,7 @@ def create_app() -> FastAPI:
     app.include_router(auth.router)
     app.include_router(wells.router)
     app.include_router(analysis.router)
+    app.include_router(ml.router)
     app.include_router(scada.router)
 
     @app.get("/", tags=["meta"])
