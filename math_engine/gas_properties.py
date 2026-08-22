@@ -69,7 +69,10 @@ def z_factor_dak(P: float, T: float, Ppc: float, Tpc: float) -> float:
     """
     Ppr = P / Ppc
     Tpr = T / Tpc
-    
+
+    if Ppr <= 0 or Tpr <= 0:
+        raise ValueError("Ppr and Tpr must be positive - check P, T inputs.")
+
     # Constants for DAK EOS (Appendix A)
     A1, A2, A3, A4, A5 = 0.3265, -1.0700, -0.5339, 0.01569, -0.05165
     A6, A7, A8, A9, A10, A11 = 0.5475, -0.7361, 0.1844, 0.1056, 0.6134, 0.7210
@@ -107,11 +110,11 @@ def get_gas_properties(P: float, T: float, gamma_g: float) -> dict:
     mu = gas_viscosity_lee(P, T, gamma_g, z)
 
     return {
-        "Ppc": Ppc,
-        "Tpc": Tpc,
-        "z": z,
-        "density_lbm_ft3": rho,
-        "viscosity_cp": mu
+        "Ppc": float(Ppc),
+        "Tpc": float(Tpc),
+        "z": float(z),
+        "density_lbm_ft3": float(rho),
+        "viscosity_cp": float(mu)
     }
 
 # ==============================================================================
