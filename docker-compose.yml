@@ -1,21 +1,27 @@
-# Local PostgreSQL for AeroLift Analytics.
+# AeroLift Analytics - full production stack.
 #
-#   docker compose up -d
-#   set DATABASE_URL=postgresql://aerolift:aerolift_dev_password@localhost:5432/aerolift
-#   venv\Scripts\alembic.exe upgrade head
+#   docker compose up -d --build
 #
-# The app falls back to SQLite when DATABASE_URL is unset, so this service is
-# only needed for the production-like setup.
+# Brings up:
+#   db        PostgreSQL 15 (persistent volume)
+#   api       FastAPI + Alembic migrations on boot  -> http://localhost:8000/docs
+#   dashboard Streamlit app                          -> http://localhost:8501
+#
+# Mint the first API key once the stack is healthy:
+#   docker compose exec api python scripts/mint_key.py \
+#       --label owner --field Field-A --tier pro
+#
+# Override credentials in production:
+#   POSTGRES_PASSWORD=... docker compose up -d
+
 services:
   db:
     image: postgres:15-alpine
     container_name: aerolift-db
     environment:
       POSTGRES_USER: aerolift
-      POSTGRES_PASSWORD: aerolift_dev_password
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-aerolift_dev_password}
       POSTGRES_DB: aerolift
-    ports:
-      - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -23,6 +29,56 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
+    restart: unless-stopped
+
+  api:
+    build: .
+    container_name: aerolift-api
+    command: >
+      sh -c "alembic upgrade head &&
+             uvicorn api.main:app --host 0.0.0.0 --port 8000"
+    environment:
+      DATABASE_URL: postgresql+psycopg2://aerolift:${POSTGRES_PASSWORD:-aerolift_dev_password}@db:5432/aerolift
+      AEROLIFT_ML_DIR: /data/ml_models
+    ports:
+      - "8000:8000"
+    volumes:
+      - mlmodels:/data
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request as u; u.urlopen('http://localhost:8000/health', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    restart: unless-stopped
+
+  dashboard:
+    build: .
+    container_name: aerolift-dashboard
+    command: >
+      streamlit run app.py --server.port 8501 --server.address 0.0.0.0
+      --server.headless true
+    environment:
+      AEROLIFT_ML_DIR: /data/ml_models
+    ports:
+      - "8501:8501"
+    volumes:
+      - mlmodels:/data
+    depends_on:
+      - api
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request as u; u.urlopen('http://localhost:8501/_stcore/health', timeout=3)"]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
 
 volumes:
   pgdata:
+  mlmodels:

@@ -1,0 +1,13 @@
+venv/
+.git/
+.gitignore
+__pycache__/
+*.pyc
+.pytest_cache/
+tests/
+ml_models/
+*.db
+*.db-journal
+_tmp_mig.db
+.env
+CONTEXT.md
