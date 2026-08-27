@@ -1,0 +1,380 @@
+[
+  {
+    "well": 1,
+    "gas_rate_m3d": 10700,
+    "liquid_rate_m3d": 0.18,
+    "tubing_id_in": 2.375,
+    "vsg_ms": 1.55,
+    "inclination_deg": 20,
+    "actual": "Loaded"
+  },
+  {
+    "well": 2,
+    "gas_rate_m3d": 52200,
+    "liquid_rate_m3d": 0.03,
+    "tubing_id_in": 2.441,
+    "vsg_ms": 3.2,
+    "inclination_deg": 30,
+    "actual": "Unloaded"
+  },
+  {
+    "well": 3,
+    "gas_rate_m3d": 42100,
+    "liquid_rate_m3d": 0.1,
+    "tubing_id_in": 2.441,
+    "vsg_ms": 2.2,
+    "inclination_deg": 30,
+    "actual": "Unloaded"
+  },
+  {
+    "well": 4,
+    "gas_rate_m3d": 57100,
+    "liquid_rate_m3d": 8.0,
+    "tubing_id_in": 2.441,
+    "vsg_ms": 3.8,
+    "inclination_deg": 30,
+    "actual": "Unloaded"
+  },
+  {
+    "well": 5,
+    "gas_rate_m3d": 22400,
+    "liquid_rate_m3d": 0.17,
+    "tubing_id_in": 2.441,
+    "vsg_ms": 2.82,
+    "inclination_deg": 50,
+    "actual": "Unloaded"
+  },
+  {
+    "well": 6,
+    "gas_rate_m3d": 23900,
+    "liquid_rate_m3d": 0.6,
+    "tubing_id_in": 2.375,
+    "vsg_ms": 3.04,
+    "inclination_deg": 20,
+    "actual": "Unloaded"
+  },
+  {
+    "well": 7,
+    "gas_rate_m3d": 26500,
+    "liquid_rate_m3d": 0.2,
+    "tubing_id_in": 2.375,
+    "vsg_ms": 2.12,
+    "inclination_deg": 45,
+    "actual": "Unloaded"
+  },
+  {
+    "well": 8,
+    "gas_rate_m3d": 74600,
+    "liquid_rate_m3d": 0.14,
+    "tubing_id_in": 2.375,
+    "vsg_ms": 3.52,
+    "inclination_deg": 25,
+    "actual": "Unloaded"
+  },
+  {
+    "well": 9,
+    "gas_rate_m3d": 34300,
+    "liquid_rate_m3d": 0.5,
+    "tubing_id_in": 2.375,
+    "vsg_ms": 3.6,
+    "inclination_deg": 22,
+    "actual": "Unloaded"
+  },
+  {
+    "well": 10,
+    "gas_rate_m3d": 39000,
+    "liquid_rate_m3d": 0.2,
+    "tubing_id_in": 2.875,
+    "vsg_ms": 2.5,
+    "inclination_deg": 26,
+    "actual": "Unloaded"
+  },
+  {
+    "well": 11,
+    "gas_rate_m3d": 108100,
+    "liquid_rate_m3d": 0.16,
+    "tubing_id_in": 2.875,
+    "vsg_ms": 4.2,
+    "inclination_deg": 30,
+    "actual": "Unloaded"
+  },
+  {
+    "well": 12,
+    "gas_rate_m3d": 56700,
+    "liquid_rate_m3d": 0.1,
+    "tubing_id_in": 2.875,
+    "vsg_ms": 5.2,
+    "inclination_deg": 32,
+    "actual": "Unloaded"
+  },
+  {
+    "well": 13,
+    "gas_rate_m3d": 10100,
+    "liquid_rate_m3d": 0.22,
+    "tubing_id_in": 2.875,
+    "vsg_ms": 1.2,
+    "inclination_deg": 35,
+    "actual": "Loaded"
+  },
+  {
+    "well": 14,
+    "gas_rate_m3d": 11600,
+    "liquid_rate_m3d": 0.51,
+    "tubing_id_in": 2.375,
+    "vsg_ms": 0.31,
+    "inclination_deg": 45,
+    "actual": "Loaded"
+  },
+  {
+    "well": 15,
+    "gas_rate_m3d": 4900,
+    "liquid_rate_m3d": 1.23,
+    "tubing_id_in": 2.375,
+    "vsg_ms": 0.16,
+    "inclination_deg": 40,
+    "actual": "Loaded"
+  },
+  {
+    "well": 16,
+    "gas_rate_m3d": 48600,
+    "liquid_rate_m3d": 0.25,
+    "tubing_id_in": 2.375,
+    "vsg_ms": 1.61,
+    "inclination_deg": 24,
+    "actual": "Loaded"
+  },
+  {
+    "well": 17,
+    "gas_rate_m3d": 29300,
+    "liquid_rate_m3d": 0.16,
+    "tubing_id_in": 2.375,
+    "vsg_ms": 1.29,
+    "inclination_deg": 28,
+    "actual": "Loaded"
+  },
+  {
+    "well": 18,
+    "gas_rate_m3d": 20200,
+    "liquid_rate_m3d": 0.51,
+    "tubing_id_in": 3.5,
+    "vsg_ms": 0.23,
+    "inclination_deg": 50,
+    "actual": "Loaded"
+  },
+  {
+    "well": 19,
+    "gas_rate_m3d": 97600,
+    "liquid_rate_m3d": 0.26,
+    "tubing_id_in": 3.5,
+    "vsg_ms": 1.14,
+    "inclination_deg": 40,
+    "actual": "Loaded"
+  },
+  {
+    "well": 20,
+    "gas_rate_m3d": 9900,
+    "liquid_rate_m3d": 0.57,
+    "tubing_id_in": 3.5,
+    "vsg_ms": 0.36,
+    "inclination_deg": 42,
+    "actual": "Loaded"
+  },
+  {
+    "well": 21,
+    "gas_rate_m3d": 5100,
+    "liquid_rate_m3d": 1.23,
+    "tubing_id_in": 3.5,
+    "vsg_ms": 0.41,
+    "inclination_deg": 45,
+    "actual": "Loaded"
+  },
+  {
+    "well": 22,
+    "gas_rate_m3d": 29100,
+    "liquid_rate_m3d": 0.03,
+    "tubing_id_in": 3.5,
+    "vsg_ms": 2.35,
+    "inclination_deg": 50,
+    "actual": "Loaded"
+  },
+  {
+    "well": 23,
+    "gas_rate_m3d": 13900,
+    "liquid_rate_m3d": 0.2,
+    "tubing_id_in": 3.5,
+    "vsg_ms": 1.12,
+    "inclination_deg": 30,
+    "actual": "Loaded"
+  },
+  {
+    "well": 24,
+    "gas_rate_m3d": 7800,
+    "liquid_rate_m3d": 0.06,
+    "tubing_id_in": 2.375,
+    "vsg_ms": 1.36,
+    "inclination_deg": 35,
+    "actual": "Loaded"
+  },
+  {
+    "well": 25,
+    "gas_rate_m3d": 8600,
+    "liquid_rate_m3d": 0.16,
+    "tubing_id_in": 2.441,
+    "vsg_ms": 1.42,
+    "inclination_deg": 32,
+    "actual": "Loaded"
+  },
+  {
+    "well": 26,
+    "gas_rate_m3d": 10800,
+    "liquid_rate_m3d": 3.13,
+    "tubing_id_in": 2.441,
+    "vsg_ms": 1.78,
+    "inclination_deg": 30,
+    "actual": "Loaded"
+  },
+  {
+    "well": 27,
+    "gas_rate_m3d": 5300,
+    "liquid_rate_m3d": 0.57,
+    "tubing_id_in": 2.441,
+    "vsg_ms": 0.88,
+    "inclination_deg": 28,
+    "actual": "Loaded"
+  },
+  {
+    "well": 28,
+    "gas_rate_m3d": 12400,
+    "liquid_rate_m3d": 0.3,
+    "tubing_id_in": 2.441,
+    "vsg_ms": 2.06,
+    "inclination_deg": 30,
+    "actual": "Loaded"
+  },
+  {
+    "well": 29,
+    "gas_rate_m3d": 16300,
+    "liquid_rate_m3d": 0.48,
+    "tubing_id_in": 2.441,
+    "vsg_ms": 2.7,
+    "inclination_deg": 35,
+    "actual": "Loaded"
+  },
+  {
+    "well": 30,
+    "gas_rate_m3d": 35200,
+    "liquid_rate_m3d": 0.36,
+    "tubing_id_in": 2.875,
+    "vsg_ms": 4.2,
+    "inclination_deg": 30,
+    "actual": "Loaded"
+  },
+  {
+    "well": 31,
+    "gas_rate_m3d": 38500,
+    "liquid_rate_m3d": 0.13,
+    "tubing_id_in": 2.875,
+    "vsg_ms": 4.6,
+    "inclination_deg": 25,
+    "actual": "Loaded"
+  },
+  {
+    "well": 32,
+    "gas_rate_m3d": 26800,
+    "liquid_rate_m3d": 0.22,
+    "tubing_id_in": 2.875,
+    "vsg_ms": 3.2,
+    "inclination_deg": 26,
+    "actual": "Loaded"
+  },
+  {
+    "well": 33,
+    "gas_rate_m3d": 29300,
+    "liquid_rate_m3d": 0.51,
+    "tubing_id_in": 2.875,
+    "vsg_ms": 3.5,
+    "inclination_deg": 28,
+    "actual": "Loaded"
+  },
+  {
+    "well": 34,
+    "gas_rate_m3d": 31800,
+    "liquid_rate_m3d": 0.36,
+    "tubing_id_in": 2.875,
+    "vsg_ms": 3.8,
+    "inclination_deg": 35,
+    "actual": "Loaded"
+  },
+  {
+    "well": 35,
+    "gas_rate_m3d": 42200,
+    "liquid_rate_m3d": 0.2,
+    "tubing_id_in": 3.5,
+    "vsg_ms": 3.4,
+    "inclination_deg": 30,
+    "actual": "Loaded"
+  },
+  {
+    "well": 36,
+    "gas_rate_m3d": 52200,
+    "liquid_rate_m3d": 0.4,
+    "tubing_id_in": 3.5,
+    "vsg_ms": 4.2,
+    "inclination_deg": 25,
+    "actual": "Loaded"
+  },
+  {
+    "well": 37,
+    "gas_rate_m3d": 41000,
+    "liquid_rate_m3d": 0.3,
+    "tubing_id_in": 3.5,
+    "vsg_ms": 3.3,
+    "inclination_deg": 28,
+    "actual": "Loaded"
+  },
+  {
+    "well": 38,
+    "gas_rate_m3d": 48400,
+    "liquid_rate_m3d": 0.57,
+    "tubing_id_in": 3.5,
+    "vsg_ms": 3.9,
+    "inclination_deg": 38,
+    "actual": "Loaded"
+  },
+  {
+    "well": 39,
+    "gas_rate_m3d": 20000,
+    "liquid_rate_m3d": 0.43,
+    "tubing_id_in": 2.375,
+    "vsg_ms": 3.5,
+    "inclination_deg": 40,
+    "actual": "Loaded"
+  },
+  {
+    "well": 40,
+    "gas_rate_m3d": 14900,
+    "liquid_rate_m3d": 1.01,
+    "tubing_id_in": 2.375,
+    "vsg_ms": 2.6,
+    "inclination_deg": 50,
+    "actual": "Loaded"
+  },
+  {
+    "well": 41,
+    "gas_rate_m3d": 16600,
+    "liquid_rate_m3d": 1.23,
+    "tubing_id_in": 2.375,
+    "vsg_ms": 2.9,
+    "inclination_deg": 45,
+    "actual": "Loaded"
+  },
+  {
+    "well": 42,
+    "gas_rate_m3d": 18300,
+    "liquid_rate_m3d": 0.25,
+    "tubing_id_in": 2.375,
+    "vsg_ms": 3.2,
+    "inclination_deg": 48,
+    "actual": "Loaded"
+  }
+]

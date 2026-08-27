@@ -41,6 +41,16 @@ from math_engine.liquid_loading import (
     loading_assessment,
     minimum_flow_rate,
 )
+from math_engine.charts import (
+    plot_operating_envelope, plot_vcrit_vs_pressure,
+    plot_vcrit_vs_temperature, plot_vcrit_vs_diameter,
+    plot_pz, plot_deliverability_loglog,
+    plot_temperature_profile, plot_erosional_velocity,
+    plot_hydrate_curve, plot_multi_model_comparison,
+    plot_belfroid_envelope, plot_decline_type_curves,
+    plot_margins_histogram, plot_confusion_matrix,
+    plot_accuracy_by_pressure, plot_corey_rel_perm,
+)
 from math_engine.forecast import (
     fit_material_balance,
     forecast_well_life,
@@ -61,6 +71,7 @@ from math_engine.oil_pvt import (
     validate_ranges,
 )
 from math_engine.artificial_lift import size_esp, rod_pump_check
+from math_engine.bulk_loader import parse_file, bulk_analyze, results_to_csv
 
 # ==========================================
 # PAGE CONFIGURATION
@@ -73,6 +84,198 @@ st.markdown(
     "DAK / Sutton / LGE · Beggs & Brill · Turner/Coleman · p/z material "
     "balance. Unidades de campo.")
 st.markdown("---")
+
+# ==========================================
+# VIEW MODE SELECTOR (sidebar top)
+# ==========================================
+view_mode = st.sidebar.radio(
+    "Modo",
+    ["Análisis de Pozo", "Carga Masiva"],
+    label_visibility="collapsed")
+
+st.sidebar.markdown("---")
+
+if view_mode == "Carga Masiva":
+    # ==========================================
+    # BULK LOADER MODE — full page, no sidebar inputs
+    # ==========================================
+    st.header("📂 Carga Masiva de Pozos")
+    st.markdown(
+        "Sube un archivo **JSON**, **CSV** o **Excel** con datos de múltiples "
+        "pozos. El sistema calcula liquid loading para cada pozo y compara "
+        "con el estado observado si está disponible.")
+
+    col_cfg1, col_cfg2 = st.columns([1, 1])
+    with col_cfg1:
+        bulk_method = st.radio(
+            "Método de evaluación",
+            ("turner", "coleman"), horizontal=True, key="bulk_method")
+    with col_cfg2:
+        st.caption(
+            "**Formatos aceptados:**\n"
+            "- **JSON**: lista de objetos con campos `p_wh`, `q_gas_mscfd`, etc.\n"
+            "- **CSV**: encabezados con alias flexibles (`pwh`, `whp`, `q_gas`, etc.)\n"
+            "- **Excel (.xlsx)**: misma estructura que CSV\n\n"
+            "**Campos requeridos:** `p_wh` (presión superficie) y "
+            "`q_gas_mscfd` (tasa gas). Los demás tienen defaults.")
+
+    uploaded = st.file_uploader(
+        "Selecciona archivo de pozos",
+        type=["json", "csv", "xlsx"],
+        help="JSON, CSV o Excel con datos de pozos",
+        key="bulk_upload")
+
+    if uploaded is not None:
+        try:
+            content = uploaded.read()
+            raw_wells = parse_file(uploaded.name, content)
+        except Exception as exc:
+            st.error("Error al parsear archivo: {}".format(exc))
+            raw_wells = []
+
+        if raw_wells:
+            with st.spinner("Analizando {} pozos...".format(len(raw_wells))):
+                analysis = bulk_analyze(raw_wells, method=bulk_method)
+
+            summary = analysis["summary"]
+
+            st.subheader("📊 Resumen")
+            m1, m2, m3, m4, m5 = st.columns(5)
+            m1.metric("Pozos parseados", summary["total_parsed"])
+            m2.metric("Errores", summary["parse_errors"])
+            m3.metric("Evaluable", summary["evaluable"])
+            acc = summary["accuracy_pct"]
+            m4.metric("Accuracy",
+                      "{:.1f}%".format(acc) if acc is not None else "N/A")
+            rec = summary["recall_pct"]
+            m5.metric("Recall (loaded)",
+                      "{:.1f}%".format(rec) if rec is not None else "N/A")
+
+            if summary["errors"]:
+                with st.expander(
+                        "⚠️ {} pozos con errores de formato".format(
+                            summary["parse_errors"])):
+                    for err in summary["errors"]:
+                        st.text("{}: {}".format(
+                            err["tag"], "; ".join(err["errors"])))
+
+            st.subheader("📋 Resultados por pozo")
+            import pandas as pd
+            df = pd.DataFrame(analysis["wells"])
+
+            def _highlight(row):
+                styles = [""] * len(row)
+                if row.get("correct") is True:
+                    styles = ["background-color: #d4edda"] * len(row)
+                elif row.get("correct") is False:
+                    styles = ["background-color: #f8d7da"] * len(row)
+                return styles
+
+            display_cols = [
+                "tag", "p_wh", "t_wh_f", "gamma_g", "tubing_id_in",
+                "q_gas_mscfd", "status_raw", "status_actual",
+                "v_crit_ft_s", "v_actual_ft_s", "q_crit_mscfd",
+                "is_loading", "margin_pct", "correct", "method"]
+            existing_cols = [c for c in display_cols if c in df.columns]
+            st.dataframe(
+                df[existing_cols].style.apply(_highlight, axis=1),
+                use_container_width=True, height=400)
+
+            if summary["evaluable"] > 0:
+                st.subheader("🎯 Desglose de Precisión")
+                b1, b2, b3, b4 = st.columns(4)
+                b1.metric("Wells cargados (reales)",
+                          summary["loaded_count"])
+                b2.metric("Wells sin carga (reales)",
+                          summary["unloaded_count"])
+                b3.metric("Predichos como cargados",
+                          summary["flagged_as_loading"])
+                fp = summary["false_positive_pct"]
+                b4.metric("Falsos positivos",
+                          "{:.1f}%".format(fp) if fp is not None else "N/A")
+
+            st.subheader("📥 Exportar")
+            csv_data = results_to_csv(analysis)
+            st.download_button(
+                label="📥 Descargar CSV con resultados",
+                data=csv_data,
+                file_name="aerolift_bulk_results.csv",
+                mime="text/csv")
+
+            from math_engine.bulk_loader import results_to_json
+            json_data = results_to_json(analysis)
+            st.download_button(
+                label="📥 Descargar JSON con resultados",
+                data=json_data,
+                file_name="aerolift_bulk_results.json",
+                mime="application/json")
+
+            if summary["evaluable"] > 0:
+                st.subheader("Visualizacion")
+                import plotly.express as px
+                chart_data = df[df["status_actual"] != "unknown"].copy()
+                if len(chart_data) > 0:
+                    fig = px.scatter(
+                        chart_data,
+                        x="q_gas_mscfd", y="q_crit_mscfd",
+                        color="status_actual",
+                        symbol="correct",
+                        hover_name="tag",
+                        title="Tasa actual vs Tasa Critica",
+                        labels={
+                            "q_gas_mscfd": "Tasa actual (Mscf/D)",
+                            "q_crit_mscfd": "Tasa critica (Mscf/D)",
+                            "status_actual": "Estado real",
+                            "correct": "Prediccion correcta"
+                        })
+                    max_val = max(chart_data["q_gas_mscfd"].max(),
+                                  chart_data["q_crit_mscfd"].max()) * 1.1
+                    fig.add_scatter(
+                        x=[0, max_val], y=[0, max_val],
+                        mode="lines", name="Linea de carga",
+                        line=dict(dash="dash", color="red"))
+                    st.plotly_chart(fig, use_container_width=True)
+
+                st.subheader("Graficas de Diagnostico")
+                diag1, diag2 = st.columns(2)
+                with diag1:
+                    margins = chart_data["margin_pct"].dropna().tolist()
+                    if margins:
+                        st.plotly_chart(plot_margins_histogram(margins),
+                                        use_container_width=True)
+                with diag2:
+                    tp = len(chart_data[(chart_data["status_actual"] == "loaded") &
+                                        (chart_data["is_loading"] == True)])
+                    tn = len(chart_data[(chart_data["status_actual"] == "unloaded") &
+                                        (chart_data["is_loading"] == False)])
+                    fp = len(chart_data[(chart_data["status_actual"] == "unloaded") &
+                                        (chart_data["is_loading"] == True)])
+                    fn = len(chart_data[(chart_data["status_actual"] == "loaded") &
+                                        (chart_data["is_loading"] == False)])
+                    st.plotly_chart(plot_confusion_matrix(tp, tn, fp, fn),
+                                    use_container_width=True)
+
+                diag3, diag4 = st.columns(2)
+                with diag3:
+                    if "p_wh" in chart_data.columns:
+                        acc_data = chart_data[["p_wh", "correct"]].dropna().to_dict("records")
+                        st.plotly_chart(plot_accuracy_by_pressure(acc_data, bulk_method),
+                                        use_container_width=True)
+                with diag4:
+                    fig_box = go.Figure()
+                    for status in ["loaded", "unloaded"]:
+                        subset = chart_data[chart_data["status_actual"] == status]
+                        if len(subset) > 0:
+                            fig_box.add_trace(go.Box(
+                                y=subset["v_crit_ft_s"], name=status,
+                                boxmean='sd'))
+                    fig_box.update_layout(
+                        title="Distribucion v_crit por Estado",
+                        yaxis_title="v_crit (ft/s)",
+                        template="plotly_white", height=400)
+                    st.plotly_chart(fig_box, use_container_width=True)
+
+    st.stop()  # Don't render the analysis tabs below
 
 # ==========================================
 # SIDEBAR INPUTS (The "Control Panel")
@@ -172,6 +375,24 @@ for w in warnings_dq:
     st.warning("{}".format(w["message"]))
 
 # ==========================================
+# PARSING DE INPUTS P/Z (scope principal)
+# ==========================================
+gp_hist = parse_float_list(gp_hist_txt)
+p_hist = parse_float_list(p_hist_txt)
+mb_ok = gp_hist and p_hist and len(gp_hist) == len(p_hist) \
+    and len(gp_hist) >= 2 \
+    and all(p2 < p1 for p1, p2 in zip(p_hist, p_hist[1:]))
+
+# Material balance fit (scope principal para tabs 2 y 4)
+intercept_mb = slope_mb = G = None
+if mb_ok:
+    try:
+        intercept_mb, slope_mb, G = fit_material_balance(
+            t_res, gamma_g, gp_hist, p_hist)
+    except Exception:
+        mb_ok = False
+
+# ==========================================
 # ENGINE PIPELINE (single pass, shared by tabs)
 # ==========================================
 # --- VLP selection ---
@@ -268,10 +489,10 @@ if vlp_note:
 # ==========================================
 # DASHBOARD TABS
 # ==========================================
-tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
-    "🚨 Liquid Loading", "⚖️ Análisis Nodal", "📉 Perfil de Presión",
-    "🔮 Pronóstico y Health Score", "🔧 Recomendaciones",
-    "🛢️ Petróleo (IPR / ESP / Bombeo)"])
+tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
+    "Loading", "Nodal", "Travers",
+    "Forecast", "Recomend.",
+    "Petroleo", "Ingenieria"])
 
 # ------------------------------------------
 # TAB 1: LIQUID LOADING DIAGNOSTIC
@@ -332,9 +553,33 @@ with tab1:
     q_min_1995 = minimum_flow_rate(eval_P, t_res, gamma_g, 1.995,
                                    "water", load_method)
     q_min_now = load_res["q_crit_mscfd"]
-    st.caption("💡 Reducir tubería a 1.995\" bajaría la tasa crítica de "
+    st.caption("Reducir tuberia a 1.995\" bajaria la tasa critica de "
                "{:.0f} a {:.0f} Mscf/D en estas condiciones."
                .format(q_min_now, q_min_1995))
+
+    st.markdown("---")
+    st.subheader("Graficas de Sensibilidad")
+
+    col_env, col_vcrit = st.columns(2)
+    with col_env:
+        st.plotly_chart(plot_operating_envelope(
+            p_res, t_res, gamma_g, tubing_id, q_actual=q_gas,
+            liquid_type="water", method=load_method),
+            use_container_width=True)
+    with col_vcrit:
+        st.plotly_chart(plot_vcrit_vs_pressure(
+            t_res, gamma_g, tubing_id, "water", load_method),
+            use_container_width=True)
+
+    col_temp, col_diam = st.columns(2)
+    with col_temp:
+        st.plotly_chart(plot_vcrit_vs_temperature(
+            eval_P, gamma_g, tubing_id, "water", load_method),
+            use_container_width=True)
+    with col_diam:
+        st.plotly_chart(plot_vcrit_vs_diameter(
+            eval_P, t_res, gamma_g, "water", load_method),
+            use_container_width=True)
 
 # ------------------------------------------
 # TAB 2: NODAL ANALYSIS
@@ -395,6 +640,22 @@ with tab2:
         st.metric("AOF (absolute open flow)",
                   "{:.0f} Mscf/D".format(rs_data["AOF"]))
 
+    st.markdown("---")
+    st.subheader("Graficas Adicionales")
+    col_pz, col_deliv = st.columns(2)
+    with col_pz:
+        if mb_ok and intercept_mb is not None:
+            st.plotly_chart(plot_pz(gp_hist, p_hist, G, intercept_mb, slope_mb),
+                            use_container_width=True)
+        else:
+            st.info("Ingrese historial p/z para ver grafico.")
+    with col_deliv:
+        if pwf_list and q_list:
+            st.plotly_chart(plot_deliverability_loglog(pwf_list, q_list, p_res),
+                            use_container_width=True)
+        else:
+            st.info("Ingrese datos de prueba para ver grafico log-log.")
+
 # ------------------------------------------
 # TAB 3: PRESSURE TRAVERSE
 # ------------------------------------------
@@ -435,30 +696,29 @@ with tab3:
         st.caption("Patrones de flujo (tramos): {}".format(patterns))
 
     fig_tr.update_layout(
-        title="Traverse de presión ({})".format(vlp_model),
-        xaxis_title="Presión (psia)",
+        title="Traverse de presion ({})".format(vlp_model),
+        xaxis_title="Presion (psia)",
         yaxis_title="Profundidad (ft)",
         yaxis=dict(autorange="reversed"),
         template="plotly_white", height=600)
     st.plotly_chart(fig_tr, use_container_width=True)
+
+    st.subheader("Perfil de Temperatura")
+    st.plotly_chart(plot_temperature_profile(
+        p_wh, t_wh, t_res, tvd, q_operate, tubing_id, gamma_g),
+        use_container_width=True)
 
 # ------------------------------------------
 # TAB 4: FORECAST + HEALTH SCORE
 # ------------------------------------------
 with tab4:
     st.header("Pronóstico de Vida del Pozo")
-    gp_hist = parse_float_list(gp_hist_txt)
-    p_hist = parse_float_list(p_hist_txt)
 
-    mb_ok = gp_hist and p_hist and len(gp_hist) == len(p_hist) \
-        and all(p2 < p1 for p1, p2 in zip(p_hist, p_hist[1:]))
     if not mb_ok:
         st.error("Historial p/z inválido: se necesitan ≥2 pares (Gp, P) "
                  "con presión decreciente.")
         st.stop()
 
-    intercept_mb, slope_mb, G = fit_material_balance(
-        t_res, gamma_g, gp_hist, p_hist)
     cG, cSlope, cInt = st.columns(3)
     cG.metric("OGIP estimado (G)", "{:.0f} MMscf".format(G))
     cSlope.metric("Gp ya producido", "{:.0f} MMscf".format(gp_hist[-1]))
@@ -631,13 +891,23 @@ with tab4:
     st.download_button("Descargar reporte PDF", pdf_bytes,
                        "aerolift_reporte.pdf", "application/pdf")
 
-    with st.expander("Tabla del pronóstico"):
+    with st.expander("Tabla del pronostico"):
         rows = [{"Día": r["day"], "Gp (MMscf)": round(r["Gp"]),
                  "Pr (psia)": round(r["Pr"]),
                  "q (Mscf/D)": round(r["q_mscfd"]),
                  "Pwf": "-" if r["Pwf"] is None else round(r["Pwf"]),
                  "Estado": r["status"]} for r in history]
         st.table(rows)
+
+    st.subheader("Curvas de Declinacion de Arps")
+    arps_qi = st.number_input("qi para Arps (Mscf/D)", 100.0, 50000.0,
+                              float(history[0]["q_mscfd"]) if history else 900.0,
+                              50.0, key="arps_qi")
+    arps_b = st.slider("b (exponente)", 0.0, 2.0, 0.5, 0.1, key="arps_b")
+    arps_Di = st.number_input("Di inicial (1/dia)", 0.0001, 0.1, 0.001, 0.0001,
+                              format="%.4f", key="arps_Di")
+    st.plotly_chart(plot_decline_type_curves(arps_qi, arps_b, arps_Di, months=60),
+                    use_container_width=True)
 
 # ------------------------------------------
 # TAB 5: RECOMMENDATIONS
@@ -726,6 +996,11 @@ with tab6:
         qo_max = None
 
     st.markdown("---")
+    st.subheader("Permeabilidad Relativa (Corey)")
+    corey_lam = st.slider("Lambda (Corey)", 1.0, 5.0, 2.0, 0.5, key="corey_lam")
+    st.plotly_chart(plot_corey_rel_perm(corey_lam), use_container_width=True)
+
+    st.markdown("---")
     left, right = st.columns(2)
     with left:
         st.subheader("⚡ ESP (Gould simplificado)")
@@ -805,3 +1080,32 @@ with tab6:
                         icon, chk["check"], chk["note"]))
             except ValueError as exc:
                 st.error(str(exc))
+
+# ------------------------------------------
+# TAB 7: ENGINEERING
+# ------------------------------------------
+with tab7:
+    st.header("Ingenieria: Graficas de Apoyo")
+    st.caption("Velocidad erosional, hidratos, comparacion multi-modelo, "
+               "envelope Belfroid.")
+
+    c1, c2 = st.columns(2)
+    with c1:
+        st.subheader("Velocidad Erosional (API RP 14E)")
+        st.plotly_chart(plot_erosional_velocity(tubing_id, gamma_g),
+                        use_container_width=True)
+    with c2:
+        st.subheader("Curva de Hidratos de Metano")
+        st.plotly_chart(plot_hydrate_curve(), use_container_width=True)
+
+    c3, c4 = st.columns(2)
+    with c3:
+        st.subheader("Comparacion Multi-Modelo")
+        st.plotly_chart(plot_multi_model_comparison(
+            eval_P, t_res, gamma_g, tubing_id, "water"),
+            use_container_width=True)
+    with c4:
+        st.subheader("Envelope Belfroid (Angulo vs Tasa)")
+        st.plotly_chart(plot_belfroid_envelope(
+            eval_P, t_res, gamma_g, tubing_id, q_actual=q_gas),
+            use_container_width=True)

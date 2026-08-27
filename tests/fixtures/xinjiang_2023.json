@@ -1,0 +1,200 @@
+[
+  {
+    "well": 1,
+    "gas_rate_m3d": 118000,
+    "liquid_rate_m3d": 0.2,
+    "whp_mpa": 27.2,
+    "wht_c": 52.5,
+    "bhp_mpa": 39.6,
+    "bht_c": 133.5,
+    "depth_m": 4900,
+    "status": "Unloaded"
+  },
+  {
+    "well": 2,
+    "gas_rate_m3d": 81000,
+    "liquid_rate_m3d": 0.2,
+    "whp_mpa": 23.0,
+    "wht_c": 41.9,
+    "bhp_mpa": 35.4,
+    "bht_c": 137.1,
+    "depth_m": 5000,
+    "status": "Unloaded"
+  },
+  {
+    "well": 3,
+    "gas_rate_m3d": 149000,
+    "liquid_rate_m3d": 0.1,
+    "whp_mpa": 24.6,
+    "wht_c": 64.4,
+    "bhp_mpa": 36.4,
+    "bht_c": 134.9,
+    "depth_m": 5000,
+    "status": "Unloaded"
+  },
+  {
+    "well": 4,
+    "gas_rate_m3d": 76800,
+    "liquid_rate_m3d": 0.1,
+    "whp_mpa": 16.4,
+    "wht_c": 32.6,
+    "bhp_mpa": 28.1,
+    "bht_c": 127.7,
+    "depth_m": 5100,
+    "status": "Unloaded"
+  },
+  {
+    "well": 5,
+    "gas_rate_m3d": 80000,
+    "liquid_rate_m3d": 0.0,
+    "whp_mpa": 22.4,
+    "wht_c": 35.7,
+    "bhp_mpa": 33.7,
+    "bht_c": 135.8,
+    "depth_m": 5000,
+    "status": "Unloaded"
+  },
+  {
+    "well": 6,
+    "gas_rate_m3d": 110100,
+    "liquid_rate_m3d": 0.9,
+    "whp_mpa": 23.6,
+    "wht_c": 62.6,
+    "bhp_mpa": 43.6,
+    "bht_c": 133.5,
+    "depth_m": 5000,
+    "status": "Unloaded"
+  },
+  {
+    "well": 7,
+    "gas_rate_m3d": 17685,
+    "liquid_rate_m3d": 0.5,
+    "whp_mpa": 17.0,
+    "wht_c": 28.1,
+    "bhp_mpa": 32.5,
+    "bht_c": 136.4,
+    "depth_m": 4600,
+    "status": "Unloaded"
+  },
+  {
+    "well": 8,
+    "gas_rate_m3d": 44541,
+    "liquid_rate_m3d": 0.0,
+    "whp_mpa": 18.5,
+    "wht_c": 31.4,
+    "bhp_mpa": 30.8,
+    "bht_c": 139.2,
+    "depth_m": 4500,
+    "status": "Unloaded"
+  },
+  {
+    "well": 9,
+    "gas_rate_m3d": 45600,
+    "liquid_rate_m3d": 0.9,
+    "whp_mpa": 21.8,
+    "wht_c": 39.2,
+    "bhp_mpa": 37.3,
+    "bht_c": 140.0,
+    "depth_m": 5000,
+    "status": "Unloaded"
+  },
+  {
+    "well": 10,
+    "gas_rate_m3d": 50034,
+    "liquid_rate_m3d": 0.02,
+    "whp_mpa": 24.8,
+    "wht_c": 37.8,
+    "bhp_mpa": 38.3,
+    "bht_c": 132.3,
+    "depth_m": 4350,
+    "status": "Unloaded"
+  },
+  {
+    "well": 11,
+    "gas_rate_m3d": 34902,
+    "liquid_rate_m3d": 0.02,
+    "whp_mpa": 20.3,
+    "wht_c": 37.1,
+    "bhp_mpa": 33.8,
+    "bht_c": 132.5,
+    "depth_m": 4500,
+    "status": "About to Load-up"
+  },
+  {
+    "well": 12,
+    "gas_rate_m3d": 19175,
+    "liquid_rate_m3d": 0.2,
+    "whp_mpa": 3.0,
+    "wht_c": 22.2,
+    "bhp_mpa": 16.1,
+    "bht_c": 131.9,
+    "depth_m": 4600,
+    "status": "About to Load-up"
+  },
+  {
+    "well": 13,
+    "gas_rate_m3d": 14706,
+    "liquid_rate_m3d": 0.3,
+    "whp_mpa": 8.7,
+    "wht_c": 27.0,
+    "bhp_mpa": 30.1,
+    "bht_c": 137.8,
+    "depth_m": 4700,
+    "status": "Load-up"
+  },
+  {
+    "well": 14,
+    "gas_rate_m3d": 19701,
+    "liquid_rate_m3d": 0.1,
+    "whp_mpa": 7.9,
+    "wht_c": 25.4,
+    "bhp_mpa": 21.9,
+    "bht_c": 135.8,
+    "depth_m": 4700,
+    "status": "Load-up"
+  },
+  {
+    "well": 15,
+    "gas_rate_m3d": 16251,
+    "liquid_rate_m3d": 0.6,
+    "whp_mpa": 8.2,
+    "wht_c": 32.1,
+    "bhp_mpa": 30.2,
+    "bht_c": 132.6,
+    "depth_m": 4500,
+    "status": "Load-up"
+  },
+  {
+    "well": 16,
+    "gas_rate_m3d": 17667,
+    "liquid_rate_m3d": 0.1,
+    "whp_mpa": 18.7,
+    "wht_c": 28.5,
+    "bhp_mpa": 35.9,
+    "bht_c": 136.4,
+    "depth_m": 4500,
+    "status": "Load-up"
+  },
+  {
+    "well": 17,
+    "gas_rate_m3d": 17481,
+    "liquid_rate_m3d": 0.2,
+    "whp_mpa": 15.0,
+    "wht_c": 30.3,
+    "bhp_mpa": 30.3,
+    "bht_c": 135.8,
+    "depth_m": 4500,
+    "status": "Load-up"
+  },
+  {
+    "well": 18,
+    "gas_rate_m3d": 19600,
+    "liquid_rate_m3d": 0.9,
+    "whp_mpa": 6.6,
+    "wht_c": 31.9,
+    "bhp_mpa": 27.3,
+    "bht_c": 141.5,
+    "depth_m": 5100,
+    "status": "Load-up"
+  }
+]

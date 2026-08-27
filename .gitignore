@@ -5,5 +5,6 @@ __pycache__/
 .idea/
 *.db
 .env
-
 ml_models/
+dataset_papers.xlsx
+AeroLift_Overview.pdf
