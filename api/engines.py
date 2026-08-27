@@ -17,6 +17,7 @@ from math_engine.bhp_dry_gas import cullender_smith_bhp
 from math_engine.forecast import fit_material_balance, forecast_well_life
 from math_engine.ipr import absolute_open_flow, fit_rawlins_schellhardt
 from math_engine.liquid_loading import loading_assessment
+from math_engine.metastable import metastable_assessment
 from math_engine.multiphase import multiphase_traverse
 from math_engine.nodal_analysis import find_natural_flow_point
 from math_engine.nodal_helpers import (
@@ -145,6 +146,11 @@ def loading_snapshot(well, q_gas_mscfd, q_water_bpd=None, p_wh=None) -> dict:
                                      q_crit_mscfd=res["q_crit_mscfd"])
     actions = advice["actions"]
     margin = res["margin_fraction"]
+    meta = metastable_assessment(eval_p, t_res, float(well.gamma_g),
+                                 float(well.tubing_id_in),
+                                 float(q_gas_mscfd),
+                                 q_water_bpd=q_w,
+                                 method=well.load_method)
     return {
         "is_loading": bool(res["is_loading"]),
         "margin_pct": margin * 100.0 if margin == margin else None,
@@ -155,6 +161,9 @@ def loading_snapshot(well, q_gas_mscfd, q_water_bpd=None, p_wh=None) -> dict:
         "v_actual_ft_s": res["v_actual_ft_s"],
         "v_crit_ft_s": res["v_crit_ft_s"],
         "q_crit_mscfd": res["q_crit_mscfd"],
+        "metastable_regime": meta["regime"],
+        "q_min_stable_mscfd": meta["q_min_stable_mscfd"],
+        "film_reynolds": meta["film_reynolds"],
     }
 
 
@@ -220,6 +229,12 @@ def forecast_from_history(db: Session, well, gp_list: List[float],
                                method=well.load_method)
         return bool(r["is_loading"])
 
+    def loading_detail(q, Pr, pwf):
+        r = loading_assessment(pwf, t_res, float(well.gamma_g),
+                               float(well.tubing_id_in), q,
+                               method=well.load_method)
+        return {"q_crit_mscfd": r["q_crit_mscfd"], "liquid_type": "water"}
+
     history = forecast_well_life(
         intercept, slope, G, t_res, float(well.gamma_g),
         ipr_pwf_func_factory=lambda Pr: ipr_at(spec, Pr),
@@ -228,11 +243,13 @@ def forecast_from_history(db: Session, well, gp_list: List[float],
         Gp_start=float(gp_list[-1]),
         time_step_days=time_step_days, max_steps=max_steps,
         q_min=max(float(well.q_gas_nominal_mscfd or 0.0) / 100.0, 5.0),
-        q_max=30000.0)
+        q_max=30000.0,
+        loading_detail_func=loading_detail)
 
     days_to_risk: Optional[int] = None
-    if history and history[0]["status"] == "flowing":
-        bad = next((r for r in history if r["status"] != "flowing"), None)
+    if history and history[0]["status"] in ("flowing", "metastable"):
+        bad = next((r for r in history
+                    if r["status"] not in ("flowing", "metastable")), None)
         if bad is not None:
             days_to_risk = int(bad["day"])
     elif history:

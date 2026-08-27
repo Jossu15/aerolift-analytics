@@ -35,6 +35,9 @@ class LoadingOut(BaseModel):
     v_actual_ft_s: float
     v_crit_ft_s: float
     q_crit_mscfd: float
+    metastable_regime: str = "stable"
+    q_min_stable_mscfd: Optional[float] = None
+    film_reynolds: Optional[float] = None
 
 
 class Intersection(BaseModel):

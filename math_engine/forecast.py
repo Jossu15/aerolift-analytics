@@ -33,6 +33,7 @@ consistent unit), rates in Mscf/D.
 import math
 
 from math_engine.gas_properties import z_factor
+from math_engine.metastable import metastable_extended_life, DEFAULT_R_META
 
 
 def pz_from_p(P, T, gamma_g):
@@ -117,14 +118,16 @@ def forecast_well_life(intercept, slope, G, T, gamma_g,
                        ipr_pwf_func_factory, vlp_pwf_func,
                        loading_check_func,
                        Gp_start, time_step_days=30, max_steps=240,
-                       q_min=1.0, q_max=50000.0):
+                       q_min=1.0, q_max=50000.0,
+                       loading_detail_func=None):
     """
     Step forward in time; at each step:
       1. Compute current Pr from Gp (material balance).
       2. Rebuild the IPR curve at the new Pr (via factory).
       3. Find the natural flow point via Nodal Analysis.
       4. Check liquid loading at that flow point.
-      5. Advance Gp by (natural flow rate * time step).
+      5. If loading, check metastable regime (Dousi 2006 / Neiman 2014).
+      6. Advance Gp by (natural flow rate * time step).
 
     :param intercept, slope, G: Fitted material-balance parameters
                                 (see fit_material_balance).
@@ -132,14 +135,20 @@ def forecast_well_life(intercept, slope, G, T, gamma_g,
     :param ipr_pwf_func_factory: callable Pr -> (callable q -> Pwf);
                                  rebuilds IPR as reservoir pressure declines.
     :param vlp_pwf_func: callable q -> Pwf (assumed constant over forecast).
-    :param loading_check_func: callable (q, Pr, Pwf) -> is_loading bool.
+    :param loading_check_func: callable (q, Pr, pwf) -> is_loading bool.
     :param Gp_start: Cumulative production at start of forecast (MMscf).
     :param time_step_days: Forecast step, days.
     :param max_steps: Max steps (guards against infinite loops).
     :param q_min, q_max: Nodal scan range, Mscf/D.
+    :param loading_detail_func: optional callable (q, Pr, pwf) -> dict with
+        keys 'q_crit_mscfd' and 'liquid_type'. When provided, enables the
+        metastable flow extension (Dousi 2006). When None, metastable is
+        skipped and the behavior is identical to the original model.
     :return: history list of dicts per step:
              day, Gp, Pr, q_mscfd, Pwf, is_loading, status.
              Stops when the well dies, loads up, or is depleted.
+             Status values: 'flowing', 'metastable', 'loading_risk',
+                            'well_dead', 'depleted'.
     """
     history = []
     Gp = Gp_start
@@ -169,7 +178,19 @@ def forecast_well_life(intercept, slope, G, T, gamma_g,
         pwf = result["Pwf_psia"]
         is_loading = loading_check_func(q, Pr, pwf)
 
-        status = "loading_risk" if is_loading else "flowing"
+        if is_loading and loading_detail_func is not None:
+            detail = loading_detail_func(q, Pr, pwf)
+            q_crit = detail.get("q_crit_mscfd", 0.0)
+            liq_type = detail.get("liquid_type", "water")
+            meta = metastable_extended_life(q_crit, q, liquid_type=liq_type)
+            if meta["can_flow"]:
+                status = "metastable"
+                is_loading = False
+            else:
+                status = "loading_risk"
+        else:
+            status = "loading_risk" if is_loading else "flowing"
+
         history.append({"day": day, "Gp": Gp, "Pr": Pr, "q_mscfd": q,
                         "Pwf": pwf, "is_loading": is_loading,
                         "status": status})

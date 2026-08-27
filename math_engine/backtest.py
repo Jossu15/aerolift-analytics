@@ -90,7 +90,21 @@ def predict_death_day(params: Dict, gp_list: List[float],
         res = loading_assessment(pwf, t_res, gg, d, q, method=method)
         return bool(res["is_loading"])
 
+    def loading_detail(q, Pr, pwf):
+        res = loading_assessment(pwf, t_res, gg, d, q, method=method)
+        return {"q_crit_mscfd": res["q_crit_mscfd"], "liquid_type": "water"}
+
     q_nominal = float(params.get("q_gas_nominal_mscfd") or 500.0)
+
+    Pr_init = float(p_list[-1])
+    ipr_spec = params.get("ipr") or ("houpeurt", {"a": DEFAULT_A, "b": DEFAULT_B})
+    if ipr_spec[0] == "rs":
+        C_rs, n_rs = ipr_spec[1]["C"], ipr_spec[1]["n"]
+        q_aof = C_rs * (Pr_init ** (2.0 * n_rs))
+    else:
+        q_aof = q_nominal * 5.0
+    q_max_est = max(q_aof * 1.2, q_nominal * 2.0)
+
     history = forecast_well_life(
         intercept, slope, G, t_res, gg,
         ipr_pwf_func_factory=_ipr_factory(params),
@@ -98,9 +112,11 @@ def predict_death_day(params: Dict, gp_list: List[float],
         loading_check_func=loading_check,
         Gp_start=float(gp_list[-1]),
         time_step_days=time_step_days, max_steps=max_steps,
-        q_min=max(q_nominal / 100.0, 5.0), q_max=30000.0)
+        q_min=max(q_nominal / 100.0, 5.0), q_max=q_max_est,
+        loading_detail_func=loading_detail)
 
-    bad = next((row for row in history if row["status"] != "flowing"), None)
+    bad = next((row for row in history if row["status"] != "flowing"
+                and row["status"] != "metastable"), None)
     return (None if bad is None else float(bad["day"])), history
 
 

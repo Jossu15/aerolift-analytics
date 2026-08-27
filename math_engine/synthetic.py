@@ -21,6 +21,7 @@ from typing import Dict, List, Optional
 from math_engine.backtest import DAYS_PER_MONTH, _vlp_from_params
 from math_engine.forecast import pressure_at_cumulative, pz_from_p
 from math_engine.liquid_loading import loading_assessment
+from math_engine.metastable import metastable_extended_life
 from math_engine.nodal_analysis import find_natural_flow_point
 from math_engine.nodal_helpers import build_rawlins_schellhardt_ipr_func
 
@@ -87,17 +88,34 @@ def make_mature_gas_well(seed: int = 0, months: int = 30,
         loading = bool(loading_assessment(
             pwf_op, t_res, gg, d, q_op,
             method=params["load_method"])["is_loading"])
-        if loading or q_op < econ_limit_mscfd:
+        if loading:
+            la_detail = loading_assessment(
+                pwf_op, t_res, gg, d, q_op,
+                method=params["load_method"])
+            meta = metastable_extended_life(
+                la_detail["q_crit_mscfd"], q_op, liquid_type="water")
+            if not meta["can_flow"]:
+                rows.append({"month": month, "Gp_mmscf": Gp, "P_psia": Pr,
+                             "q_gas_mscfd": q_op, "Pwf_psia": pwf_op,
+                             "is_loading": True})
+                truth_death_day = (month - 0.5) * time_step_days
+                break
+            else:
+                rows.append({"month": month, "Gp_mmscf": Gp, "P_psia": Pr,
+                             "q_gas_mscfd": q_op, "Pwf_psia": pwf_op,
+                             "is_loading": False})
+                Gp += q_op * time_step_days / 1000.0
+        elif q_op < econ_limit_mscfd:
             rows.append({"month": month, "Gp_mmscf": Gp, "P_psia": Pr,
                          "q_gas_mscfd": q_op, "Pwf_psia": pwf_op,
                          "is_loading": True})
             truth_death_day = (month - 0.5) * time_step_days
             break
-
-        rows.append({"month": month, "Gp_mmscf": Gp, "P_psia": Pr,
-                     "q_gas_mscfd": q_op, "Pwf_psia": pwf_op,
-                     "is_loading": False})
-        Gp += q_op * time_step_days / 1000.0
+        else:
+            rows.append({"month": month, "Gp_mmscf": Gp, "P_psia": Pr,
+                         "q_gas_mscfd": q_op, "Pwf_psia": pwf_op,
+                         "is_loading": False})
+            Gp += q_op * time_step_days / 1000.0
 
     if truth_death_day is None:  # survived the whole window
         truth_death_day = (months + 0.5) * time_step_days

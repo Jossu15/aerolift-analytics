@@ -8,3 +8,8 @@ __pycache__/
 ml_models/
 dataset_papers.xlsx
 AeroLift_Overview.pdf
+
+# Frontend
+frontend/node_modules/
+frontend/.next/
+frontend/.env.local
