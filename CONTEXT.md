@@ -1,94 +1,484 @@
-# AeroLift Analytics - Mathematical Context
-## Source: Gas Reservoir Engineering by Lee & Wattenbarger
+# AeroLift Analytics - Mathematical & Architectural Context
 
-This document contains the core mathematical models, equations, and rules for the AeroLift Analytics project. All calculations MUST use **Field Units** unless explicitly stated otherwise.
+**Platform:** Gas & oil well optimization engine with physics-first models, ML corrections, and economic evaluation.
+**Primary Source:** *Gas Reservoir Engineering* by Lee & Wattenbarger (SPE Textbook Vol. 5).
+**Status:** 227 tests passing, Docker stack running (Postgres + FastAPI + Streamlit).
 
-## 1. Units and Conventions
-- **Pressure:** Always absolute (`psia`). If given `psig`, add 14.7.
-- **Temperature:** Always absolute Rankine (`°R`). Convert Fahrenheit by adding 459.67 (or 460 for simplicity).
-- **Flow Rate:** Gas in `Mscf/D` (Thousands of standard cubic feet per day).
-- **Density:** `lbm/ft³`.
-- **Viscosity:** `cp` (centipoise).
-- **Length/Depth:** `ft` (feet).
-- **Diameter:** `in` (inches) for pipe, but convert to `ft` for Reynolds number and friction calculations.
+---
 
-## 2. Gas Properties (Chapter 1)
+## 0. Conventions
 
-### 2.1 Pseudocritical Properties (Sutton's Correlation)
-Used when gas composition is unknown. Requires gas specific gravity ($\gamma_g$, air=1.0).
-- $P_{pc} = 756.8 - 131.0\gamma_g - 3.6\gamma_g^2$  (psia)
-- $T_{pc} = 169.2 + 349.5\gamma_g - 74.0\gamma_g^2$  (°R)
+| Quantity | Unit | Notes |
+|---|---|---|
+| Pressure | `psia` (absolute) | If given psig, add 14.7 |
+| Temperature | `°R` (Rankine) | °F + 459.67 |
+| Gas rate | `Mscf/D` | Thousands of scf/day |
+| Oil/liquid rate | `STB/D` or `bbl/D` | Stock-tank barrels |
+| Density | `lbm/ft³` | |
+| Viscosity | `cp` | |
+| Length/depth | `ft` | True vertical depth (TVD) |
+| Tubing diameter | `in` (inches) | Convert to ft for Reynolds/friction |
+| Interfacial tension | `dyne/cm` | |
+| Gas specific gravity | dimensionless | Air = 1.0 |
+| API gravity | °API | Oil gravity |
 
-### 2.2 Pseudoreduced Properties
-- $P_{pr} = P / P_{pc}$
-- $T_{pr} = T / T_{pc}$
+---
 
-### 2.3 Gas Compressibility Factor (z-factor)
-- Use the **Dranchuk-Abou-Kassem (DAK)** Equation of State.
-- It is an implicit equation and requires an iterative root-finding solver (e.g., Newton-Raphson or SciPy's `fsolve`).
-- Valid ranges: $0.2 \le P_{pr} < 30$ and $1.0 < T_{pr} \le 3.0$.
+## 1. Gas Properties (`math_engine/gas_properties.py`)
 
-### 2.4 Gas Density
-- $\rho_g = \frac{2.70 \cdot \gamma_g \cdot P}{z \cdot T}$  (lbm/ft³)
+### 1.1 Pseudocritical Properties — Sutton's Correlation (Eq. 1.25-1.26)
+```
+Ppc = 756.8 - 131.0·γg - 3.6·γg²   (psia)
+Tpc = 169.2 + 349.5·γg - 74.0·γg²  (°R)
+```
 
-### 2.5 Gas Viscosity
-- Use the **Lee-Gonzalez-Eakin** correlation.
-- Requires apparent molecular weight $M = 28.96 \cdot \gamma_g$.
+### 1.2 Gas Compressibility Factor — Dranchuk-Abou-Kassem (DAK) EOS
+- Implicit equation solved by Newton-Raphson on reduced density.
+- Valid: 0.2 ≤ Ppr < 30, 1.0 < Tpr ≤ 3.0.
+- **LRU-cached** (262,144 entries) for nodal/traverse scans.
 
-## 3. Wellbore Hydraulics & Pressure Traverse (Chapter 4)
+### 1.3 Gas Density (Eq. 1.58)
+```
+ρg = 2.70 · γg · P / (z · T)   (lbm/ft³)
+```
 
-### 3.1 Mechanical Energy Balance (Vertical Pipe)
-For single-phase gas flow in a vertical wellbore (no shaft work):
-$$ \frac{144 \cdot dp}{\rho} + dZ + \frac{v \cdot dv}{g_c} + dF = 0 $$
-*(Note: 144 is the conversion factor from ft² to in²).*
+### 1.4 Gas Viscosity — Lee-Gonzalez-Eakin (Eq. 1.63-1.67)
+Requires apparent molecular weight M = 28.96 · γg.
 
-### 3.2 Reynolds Number ($N_{Re}$)
-- $N_{Re} = \frac{20 \cdot \gamma_g \cdot q_g}{\mu_g \cdot d}$
-- Where $q_g$ is in Mscf/D, $\mu_g$ in cp, and $d$ is pipe ID in inches.
-- Laminar flow if $N_{Re} \le 2000$. Turbulent if $N_{Re} > 4000$.
+### 1.5 Gas Formation Volume Factor (Eq. 1.53)
+```
+Bg = 0.02827 · z · T / P   (ft³/scf)
+```
 
-### 3.3 Friction Factor ($f$)
-- Use the **Colebrook-White** equation or **Haaland** approximation for turbulent flow.
-- Relative roughness ($\epsilon/d$): For new tubing, use $\epsilon = 0.0006$ inches.
+### 1.6 Gas Compressibility (Numerical)
+```
+cg = 1/P - (1/z)·(dz/dP)   (1/psia)
+```
+Evaluated numerically via DAK with central difference.
 
-## 4. Liquid Loading & Critical Velocity (Chapter 8)
+---
 
-### 4.1 Turner's Method for Liquid Loading
-A well is "loaded" (will die) if the actual gas velocity drops below the critical velocity required to lift liquid droplets.
+## 2. Liquid Loading — Critical Velocity (`math_engine/liquid_loading.py`)
 
-**General Equation (Eq 8.32):**
-$$ v_{g,min} = 20.404 \left[ \frac{\sigma (\rho_L - \rho_g)}{\rho_g^2} \right]^{0.25} $$
-*(Where $\sigma$ is interfacial tension in dynes/cm, $\rho$ in lbm/ft³, $v$ in ft/sec).*
+Six models implemented; the adaptive **smart ensemble** selects the best based on well conditions.
 
-**Simplified for Water (Eq 8.33):**
-Assuming $\sigma = 60$ dynes/cm and $\rho_L = 67$ lbm/ft³:
-$$ v_{g,w} = 5.62 \left[ \frac{67 - 0.0031 P}{0.0031 P} \right]^{0.25} $$
+### 2.1 General Droplet Equation (Eq. 8.32)
+```
+v_crit = C · [σ·(ρL - ρg) / ρg²]^0.25   (ft/s)
+```
 
-**Simplified for Condensate (Eq 8.34):**
-Assuming $\sigma = 20$ dynes/cm and $\rho_L = 45$ lbm/ft³:
-$$ v_{g,c} = 4.02 \left[ \frac{45 - 0.0031 P}{0.0031 P} \right]^{0.25} $$
+### 2.2 Model Constants (C)
 
-**Actual Gas Velocity Calculation:**
-$$ v_{actual} = \frac{3.06 \cdot q_g \cdot T \cdot z}{P \cdot d^2} $$
-*(Where $q_g$ in Mscf/D, $T$ in °R, $P$ in psia, $d$ in inches. Result in ft/sec).*
+| Model | C | Reference | Use case |
+|---|---|---|---|
+| Turner (1969) | 1.593 | SPE 1474 | Standard vertical wells |
+| Coleman (1991) | 1.300 | — | Low-pressure wells (< 500-1000 psia) |
+| Li (2002) | 0.7241 | — | Deformed droplets, high P (> 3000 psia) |
 
-**Rule:** If $v_{actual} < v_{g,min}$, the well is liquid loaded.
+### 2.3 Belfroid Inclination Correction (2008)
+SPE 115567. Critical velocity increases in deviated wells:
+```
+f(θ) = (sin(1.7·θ))^0.38 / (sin(153°))^0.38
+```
+θ = angle from **horizontal** (0° = horizontal, 90° = vertical).
 
-## 5. Nodal Analysis & Deliverability (Chapter 4 & 7)
+### 2.4 Temperature-Dependent Surface Tension
+Macleod-Sugden approximation:
+```
+σ(T) = σ_ref · [(Tc - T) / (Tc - T_ref)]^1.2
+```
+Tc: water = 1165.67 °R, condensate ≈ 1000 °R.
 
-### 5.1 Inflow Performance Relationship (IPR)
-Describes reservoir deliverability.
-- **Rawlins-Schellhardt:** $q_g = C (\bar{p}^2 - p_{wf}^2)^n$
-- **Houpeurt (Pseudopressure):** $\bar{p}_p - p_{p,wf} = a \cdot q_g + b \cdot q_g^2$
+### 2.5 Film Flow Criterion (Wallis 1962, Pushkina-Sorokin 1969)
+```
+v_film = 0.47 · √(g · D · (ρL - ρg) / ρg)
+```
+Dominates at LOW gas rates in LARGE diameter tubing.
 
-### 5.2 Tubing Performance Curve (VLP)
-Describes the Bottomhole Flowing Pressure ($BHFP$ or $p_{wf}$) required to lift fluids to the surface at a given rate. Calculated using the wellbore flow equations (Section 3).
+### 2.6 Smart Ensemble — Adaptive Model Selection
+```
+1. Base:  Turner (C=1.593)
+2. Deviated (θ < 70°):  × Belfroid correction
+3. High P (> 3000 psia):  max(Turner, Li)
+4. Large tubing (D > 3"):  max(result, Film flow)
+5. Final: v_crit = max(all applicable)
+```
 
-### 5.3 Natural Flow Point
-The intersection of the IPR curve and the VLP curve. This is the stable operating point of the well.
+### 2.7 Actual Gas Velocity
+```
+v_actual = Qsc · Bg / Area = 3.06 · qg · T · z / (P · d²)
+```
 
-## 6. Multiphase Flow (Chapter 4)
-When water/condensate is present, use the **Beggs-Brill** correlation.
-- Calculates liquid holdup ($H_L$) based on flow regimes (Segregated, Intermittent, Distributed).
-- Calculates mixture density: $\rho_m = \rho_L H_L + \rho_g (1 - H_L)$.
-- Calculates pressure gradient $dp/dL$ including friction and hydrostatic head.
+### 2.8 Minimum Flow Rate
+```
+q_min = v_crit · Area / Bg · 86400 / 1000   (Mscf/D)
+```
+
+### 2.9 Default Liquid Properties
+
+| Liquid | σ (dyne/cm) | ρL (lbm/ft³) |
+|---|---|---|
+| Water | 60.0 | 67.0 |
+| Condensate | 20.0 | 45.0 |
+
+### 2.10 Validation Results
+
+| Dataset | Wells | Best model | Accuracy |
+|---|---|---|---|
+| Turner (1969) vertical | 94 | Turner baseline | 71.6% |
+| Xinjiang (2023) tight gas | 18 | Li (2002) | 88.9% |
+| Gao (2012) deviated | 42 | Turner + Belfroid | 83.3% |
+
+---
+
+## 3. Wellbore Hydraulics (`math_engine/hydraulics.py`)
+
+### 3.1 Reynolds Number (Eq. 4.27)
+```
+NRe = 20 · γg · qg / (μg · d)
+```
+Laminar ≤ 2000, Turbulent > 4000.
+
+### 3.2 Friction Factor — Swamee-Jain (explicit Moody)
+```
+f = 0.25 / [log₁₀(ε/(3.7·d) + 5.74/Re^0.9)]²
+```
+Laminar: f = 64/Re. Default roughness ε = 0.0006 in (new tubing).
+
+### 3.3 Vertical Lift Performance — Average T&z Method (Eq. 4.39)
+```
+Pwf² = e^s · Pwh² + [6.67e-4 · f · Tavg² · zavg² · qg²] / [d⁵ · cos(θ)] · (e^s - 1)
+s = 0.0375 · γg · L · cos(θ) / (zavg · Tavg)
+```
+Iterated because z_avg and μ_avg depend on Pwf.
+
+---
+
+## 4. Dry-Gas BHP — Cullender-Smith Style (`math_engine/bhp_dry_gas.py`)
+
+RK2 (midpoint) depth-marching with 30-50 segments. At each step:
+```
+dP/dh = ρg/144 + f·ρg·v² / (2·gc·d_ft) / 144   (psi/ft)
+```
+Friction factor: fully turbulent Nikuradse:
+```
+1/√f = 1.74 - 2·log₁₀(2·ε/d)
+```
+
+---
+
+## 5. Multiphase Flow — Beggs & Brill (`math_engine/multiphase.py`)
+
+### 5.1 Superficial Velocities
+```
+vsg = Qsc · (Psc · T · z) / (P · Tsc) / Area / 86400
+vsl = Qliq · 5.615 / Area / 86400
+```
+
+### 5.2 Flow Pattern Determination
+From λL (no-slip holdup) and NFr (Froude number):
+- Segregated, Transition, Intermittent, Distributed
+- Boundary equations L1-L4 from λL.
+
+### 5.3 Horizontal Liquid Holdup
+EL0 = a · λL^b / NFr^c (regime-specific constants a, b, c).
+
+### 5.4 Inclination Correction Factor ψ
+```
+ψ = 1 + C · [sin(1.8θ) - (1/3)·sin³(1.8θ)]
+```
+Uphill: regime-specific C. Downhill: universal C.
+
+### 5.5 Two-Phase Friction Factor
+```
+ftp = fn · exp(S)
+S from y = λL/EL²  (Beggs-Brill friction ratio correlation)
+```
+
+### 5.6 Full Pressure Gradient
+```
+dP/dh = [ρm·sin(θ)/144 + ftp·ρns·vm²/(2·gc·d_ft)/144] / (1 - Ek)
+```
+where Ek = kinetic energy correction (acceleration term).
+
+### 5.7 Depth Traverse
+RK2 midpoint marching, same scheme as bhp_dry_gas.py.
+
+---
+
+## 6. Nodal Analysis (`math_engine/nodal_analysis.py`)
+
+### 6.1 Inflow Performance (IPR)
+
+**Houpeurt (pressure-squared):**
+```
+Pr² - Pwf² = a·q + b·q²
+```
+
+**Rawlins-Schellhardt (backpressure):**
+```
+q = C · (Pr² - Pwf²)^n
+```
+Fitted via log-log linear regression. n ∈ [0.5, 1.0].
+
+### 6.2 Pseudopressure (Real-Gas Potential)
+```
+m(P) = 2 · ∫[P_ref to P] P'/(μg·z) dP'   (Simpson's rule, 200 steps)
+m(Pr) - m(Pwf) = a·q + b·q²
+```
+
+### 6.3 Natural Flow Point
+Bisection solver finding ALL intersections of IPR and VLP curves.
+- `prefer="highest_rate"` → STABLE operating point (default).
+- `prefer="lowest_rate"` → UNSTABLE point (for loading analysis).
+- Classic liquid-loading signature: TWO crossings (J-curve).
+
+### 6.4 VLP Factory Functions (`math_engine/nodal_helpers.py`)
+- `build_avg_tz_vlp_func()` — dry gas, average T&z closed form.
+- `build_dry_gas_vlp_func()` — dry gas, RK2 depth-marching.
+- `build_beggs_brill_vlp_func()` — two-phase, full Beggs-Brill traverse.
+- Friction multiplier: field-calibration factor on BB friction gradient.
+
+---
+
+## 7. Forecasting (`math_engine/forecast.py`)
+
+### 7.1 Material Balance (p/z Plot)
+For volumetric dry-gas reservoir:
+```
+P/Z = (Pi/Zi) · (1 - Gp/G)
+```
+Fitted via linear regression. G = -intercept/slope = OGIP (MMscf).
+
+### 7.2 Pressure at Cumulative Production
+Iterative Newton-Raphson: P/Z(P) = intercept + slope·Gp.
+
+### 7.3 Well Life Forecast
+Monthly time steps:
+1. Compute Pr from Gp (material balance).
+2. Rebuild IPR at new Pr.
+3. Find natural flow point (Nodal).
+4. Check liquid loading (Turner/Coleman).
+5. Advance Gp by q·Δt.
+Stops when well dies, loads up, or is depleted.
+
+---
+
+## 8. Backtesting (`math_engine/backtest.py`)
+
+### 8.1 Walk-Forward Validation
+For each cutoff k:
+1. Fit p/z material balance on history[:k].
+2. Run forecast from that point.
+3. Record predicted death day.
+
+### 8.2 Metrics
+- **MAE (months):** mean absolute error of predicted death day.
+- **Hit rate:** fraction within ±tol months of truth.
+
+### 8.3 Synthetic Wells (`math_engine/synthetic.py`)
+Seeded RNG generates physically-consistent mature gas wells:
+- Random completion/fluid params (depth, ID, water, gravities).
+- R-S IPR (AOF 3-9 MMscf/D, n 0.75-1.0).
+- Volumetric p/z line → known death day as ground truth.
+
+---
+
+## 9. Economics (`math_engine/economics.py`)
+
+### 9.1 Interventions Modeled
+- **Velocity string:** smaller tubing ID → higher velocity, later loading.
+- **Compression:** lower Pwh → more drawdown, higher rates.
+
+### 9.2 Economics on Incremental Gas
+```
+Revenue = ΔMscf · gas_price ($/Mcf)
+NPV = Σ(monthly discounted revenue) - Cost
+ROI = (Revenue - Cost) / Cost · 100%
+Payback = first month where cumulative discounted net ≥ 0
+```
+
+---
+
+## 10. ML Residual Correction (`math_engine/ml_residuals.py`)
+
+Random Forest on residual: `measured_pwf - physics_pwf(q)`.
+Features: [q_gas_mscfd, q_water_bpd, day].
+- **Physics always dominates:** ML can only correct, never replace.
+- 120 trees, min_samples_leaf=2.
+- Per-well models persisted via joblib.
+
+---
+
+## 11. Recommendations Engine (`math_engine/recommendations.py`)
+
+### 11.1 Severity Bands
+| Band | Condition |
+|---|---|
+| stable | Not loading, margin ≥ 20% |
+| at_risk | Not loading, margin < 20% |
+| mild | Loading, water < 10 bbl/D |
+| moderate | Loading, water 10-30 bbl/D |
+| severe | Loading, water > 30 bbl/D |
+
+### 11.2 Mitigation Ladder
+1. Capillary foamer (~$500/mo)
+2. Plunger lift ($5K-$8K)
+3. Velocity string ($15K-$25K)
+4. Beam pump ($60K+)
+
+---
+
+## 12. Oil Well PVT (`math_engine/oil_pvt.py`)
+
+### 12.1 Standing (1947)
+- Solution GOR: Rs = γg · (P/18.2 + 1.4)^1.2048 · 10^(0.0125·API - 0.00091·T)
+- Bubble point: Pb inverted from GOR.
+- Oil FVF: Bo = 0.9759 + 0.00012·(Rs·√(γg/γo) + 1.25·T)^1.2
+
+### 12.2 Beggs & Robinson (1975)
+- Dead-oil viscosity, saturated oil viscosity.
+
+### 12.3 Vasquez-Beggs
+- Undersaturated viscosity correction.
+
+### 12.4 Vogel (1968) IPR
+```
+qo = qo_max · (1 - 0.2·Pwf/Pr - 0.8·(Pwf/Pr)²)
+```
+Calibrated from one test point.
+
+---
+
+## 13. Artificial Lift (`math_engine/artificial_lift.py`)
+
+### 13.1 ESP Sizing (Gould-style)
+- Intake/discharge pressures, TDH, stage count, motor HP.
+- Free-gas-at-intake warning (>10%).
+- Gas anchor recommendation.
+
+### 13.2 Beam Pump (API RP-11L spirit)
+- Pump displacement: PD = 0.1166 · S · N · D²
+- Feasibility checklist: displacement vs target, depth limit (9000 ft), gas interference, high water cut.
+
+---
+
+## 14. Data Quality & GIGO (`math_engine/data_quality.py`)
+
+Pre-computation validation rules:
+- Pwf ≥ Pr while producing → error (no drawdown).
+- Pwh > Pshutin → error (sensor fault).
+- Pwf < Pwh in producer → error (inverted gauges).
+- Tpr ≤ 1.0 → error (two-phase region, DAK invalid).
+- Tpr > 3.0, Ppr > 30 → warnings (extrapolation).
+- γg outside 0.57-1.68 → warning (Sutton extrapolation).
+
+---
+
+## 15. Bulk Loader (`math_engine/bulk_loader.py`)
+
+### 15.1 File Parsers
+- JSON, CSV, Excel (.xlsx) with auto header detection.
+- Flexible column alias mapping (English/Spanish).
+- Auto metric → field unit conversion (MPa→psia, °C→°F, m³/d→Mscf/D, m→ft).
+
+### 15.2 Bulk Analysis
+- Per-well liquid loading analysis.
+- Summary: accuracy, recall, false positive rate vs observed status.
+
+---
+
+## 16. Charts (`math_engine/charts.py`)
+
+16 Plotly figure builders:
+
+| Function | Tab | Description |
+|---|---|---|
+| `plot_operating_envelope` | Loading | P vs Qgas with loading zone |
+| `plot_vcrit_vs_pressure` | Loading | v_crit and q_crit sensitivity to P |
+| `plot_vcrit_vs_temperature` | Loading | v_crit and σ sensitivity to T |
+| `plot_vcrit_vs_diameter` | Loading | v_crit and q_crit vs tubing ID |
+| `plot_pz` | Nodal | p/z material balance plot |
+| `plot_deliverability_loglog` | Nodal | Rawlins-Schellhardt log-log |
+| `plot_temperature_profile` | Traverse | Geothermal gradient |
+| `plot_erosional_velocity` | Ingeniería | API RP 14E erosional velocity |
+| `plot_hydrate_curve` | Ingeniería | Methane hydrate equilibrium |
+| `plot_multi_model_comparison` | Ingeniería | Turner vs Coleman vs Li vs Belfroid vs Film |
+| `plot_belfroid_envelope` | Ingeniería | Angle vs rate loading map |
+| `plot_decline_type_curves` | Forecast | Arps exponential/harmonic/hyperbolic |
+| `plot_margins_histogram` | Bulk | Distribution of velocity margins |
+| `plot_confusion_matrix` | Bulk | TP/TN/FP/FN heatmap |
+| `plot_accuracy_by_pressure` | Bulk | Accuracy by pressure range |
+| `plot_corey_rel_perm` | Petroleo | Corey relative permeability curves |
+
+---
+
+## 17. Reporting (`math_engine/reporting.py`)
+
+One-page PDF via ReportLab. Shared by REST API and dashboard.
+Structure: title → (heading, [lines]) sections → footer with citation.
+
+---
+
+## 18. API Endpoints (`api/routers/`)
+
+### Gas Well Endpoints
+| Method | Path | Tier | Description |
+|---|---|---|---|
+| GET | `/api/wells/{id}/analysis/loading` | basic | Liquid loading verdict |
+| GET | `/api/wells/{id}/analysis/nodal` | pro | IPR/VLP intersections |
+| GET | `/api/wells/{id}/analysis/traverse` | basic | Pressure vs depth |
+| POST | `/api/wells/{id}/analysis/forecast` | pro | p/z decline + death day |
+| GET | `/api/wells/{id}/analysis/calibration` | pro | VLP vs measured BHFP |
+| POST | `/api/wells/{id}/analysis/economics` | pro | Intervention what-if |
+| GET | `/api/wells/{id}/analysis/report.pdf` | pro | PDF summary |
+
+### Oil Well Endpoints
+| Method | Path | Description |
+|---|---|---|
+| POST | `/api/wells/{id}/analysis/oil-ipr` | Vogel IPR + Standing PVT |
+| POST | `/api/wells/{id}/analysis/esp-sizing` | ESP design |
+| POST | `/api/wells/{id}/analysis/rod-pump` | Beam pump screen |
+
+### Bulk Endpoints
+| Method | Path | Description |
+|---|---|---|
+| POST | `/api/wells/bulk` | JSON bulk import |
+| POST | `/api/wells/bulk/upload` | File upload (JSON/CSV/XLSX) |
+
+---
+
+## 19. Dashboard Tabs (`app.py`)
+
+| Tab | Content |
+|---|---|
+| 1. Liquid Loading | 4 charts + severity + recommendations |
+| 2. Nodal Analysis | P/Z + deliverability log-log |
+| 3. Pressure Traverse | Temperature profile + Beggs-Brill diagnostics |
+| 4. Forecast | Arps type curves + p/z material balance |
+| 5. Calibracion ML | RF residual correction + calibration metrics |
+| 6. Petroleo | Corey rel-perm + Vogel IPR |
+| 7. Ingenieria | Erosional velocity + hydrate + multi-model + Belfroid + D sensitivity |
+| Bulk Loader | File upload + histograms + confusion matrix + accuracy by pressure |
+
+---
+
+## 20. Infrastructure
+
+### Docker Stack (`docker-compose.yml`)
+```
+db        → PostgreSQL 15 (persistent volume pgdata)
+api       → FastAPI + Alembic migrations → http://localhost:8000/docs
+dashboard → Streamlit → http://localhost:8501
+```
+
+### Database Models (`api/models.py`)
+- `Well` — completion params, type (gas/oil), IPR coefficients.
+- `ApiKey` — authentication, ownership, tier (basic/pro).
+- `ProductionHistory` — daily SCADA/time-series with optional pwf.
+
+### Auth
+API key-based (`X-API-Key` header). Tiers: basic (reading), pro (full analytics).
+
+### Alembic Migrations
+6 versions: schema creation, friction_multiplier, calibration, SCADA, oil wells.
