@@ -205,3 +205,68 @@ class TelemetryOut(BaseModel):
 
 class ScadaStatusOut(TelemetryOut):
     last_reading_ts: Optional[_dt.datetime] = None
+
+
+# ------------------------------------------------------------------
+# Portfolio (Fase 3) — intervention ranking + budget simulator
+# ------------------------------------------------------------------
+class PortfolioRankRow(BaseModel):
+    """Best-intervention summary for one well of the ranked portfolio."""
+    well_id: int
+    tag: str
+    q_nominal_mscfd: Optional[float] = None
+    at_risk: bool = True
+    actionable: bool = False
+    intervention: Optional[str] = None
+    label: Optional[str] = None
+    cost_usd: Optional[float] = None
+    npv_usd: Optional[float] = None
+    roi_pct: Optional[float] = None
+    payback_months: Optional[int] = None
+    incremental_gas_mmscf: Optional[float] = None
+    life_extension_days: Optional[float] = None
+
+
+class BudgetChoiceOut(BaseModel):
+    well_id: Optional[int] = None
+    tag: Optional[str] = None
+    intervention: str
+    label: Optional[str] = None
+    cost_usd: float
+    npv_usd: float
+    roi_pct: Optional[float] = None
+    payback_months: Optional[int] = None
+    incremental_gas_mmscf: float
+    life_extension_days: Optional[float] = None
+
+
+class BudgetOut(BaseModel):
+    chosen: List[BudgetChoiceOut] = []
+    total_cost_usd: float
+    total_npv_usd: float
+    budget_usd: float
+    utilization_pct: float
+    wells_selected: int
+    total_incremental_gas_mmscf: float
+
+
+class PortfolioSummaryOut(BaseModel):
+    wells_total: int
+    wells_at_risk: int
+    gas_at_risk_mscfd: float
+    wells_actionable: int
+    gas_actionable_mscfd: float
+    wells_positive_npv: int
+    positive_npv_usd: float
+    positive_cost_usd: float
+    positive_incremental_gas_mmscf: float
+    positive_roi_mean_pct: Optional[float] = None
+    positive_payback_mean_months: Optional[float] = None
+    budget: Optional[BudgetOut] = None
+
+
+class BudgetIn(BaseModel):
+    budget_usd: float = Field(gt=0)
+    gas_price_usd_mcf: Optional[float] = Field(default=3.5, gt=0)
+    one_per_well: bool = True
+    max_steps: int = Field(default=180, gt=0, le=360)

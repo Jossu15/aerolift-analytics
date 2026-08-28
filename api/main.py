@@ -20,7 +20,7 @@ from fastapi import FastAPI
 
 from api import __version__
 from api.database import init_db
-from api.routers import analysis, auth, bulk, ml, scada, wells
+from api.routers import analysis, auth, bulk, ml, portfolio, scada, wells
 from api.scheduler import scheduler_enabled, twin_calibration_enabled
 
 
@@ -62,6 +62,7 @@ def create_app() -> FastAPI:
     app.include_router(bulk.router)
     app.include_router(analysis.router)
     app.include_router(ml.router)
+    app.include_router(portfolio.router)
     app.include_router(scada.router)
 
     @app.get("/", tags=["meta"])

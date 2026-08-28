@@ -273,15 +273,13 @@ def forecast_from_history(db: Session, well, gp_list: List[float],
     }
 
 
-def forecast_view(db: Session, well, time_step_days=30,
-                  max_steps=60) -> dict:
-    """Dashboard forecast for a well without a manually-uploaded p/z history.
+def preview_decline_history(db: Session, well):
+    """Synthesize a volumetric material-balance (gp, p) history estimate.
 
-    Builds an internally-consistent volumetric MB history from the well's
-    stored reservoir pressure and deliverability (mature-gas-well estimate:
-    OGIP ~ 10 years at 80% of the absolute open flow), then runs the exact
-    same physics loop as forecast_from_history. The estimate is returned
-    flagged as such so consumers can label it a preview.
+    Mature-gas-well estimate: OGIP ~ 10 years at 80% of the absolute
+    open flow, sampled at cumulatives 0 / 5 / 10 / 15 % of OGIP.
+    Returns (gp_mmscf_list, p_psia_list, walker) where walker maps a
+    cumulative to a reservoir pressure on the fitted p/z line.
     """
     t_res = float(well.t_res_f) + 460.0
     gg = float(well.gamma_g)
@@ -296,6 +294,24 @@ def forecast_view(db: Session, well, time_step_days=30,
     gp_hist = [0.0, 0.05 * g_est, 0.10 * g_est, 0.15 * g_est]
     p_hist = [pressure_at_cumulative(g, intercept, slope, t_res, gg)
               for g in gp_hist]
+
+    def walker(g):
+        return pressure_at_cumulative(g, intercept, slope, t_res, gg)
+
+    return gp_hist, p_hist, walker
+
+
+def forecast_view(db: Session, well, time_step_days=30,
+                  max_steps=60) -> dict:
+    """Dashboard forecast for a well without a manually-uploaded p/z history.
+
+    Builds an internally-consistent volumetric MB history from the well's
+    stored reservoir pressure and deliverability (mature-gas-well estimate:
+    OGIP ~ 10 years at 80% of the absolute open flow), then runs the exact
+    same physics loop as forecast_from_history. The estimate is returned
+    flagged as such so consumers can label it a preview.
+    """
+    gp_hist, p_hist, _ = preview_decline_history(db, well)
 
     result = forecast_from_history(db, well, gp_hist, p_hist,
                                    time_step_days=time_step_days,
