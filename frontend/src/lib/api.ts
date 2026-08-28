@@ -8,6 +8,9 @@ import type {
   Twin,
   TrainResult,
   MlStatus,
+  PortfolioRankRow,
+  PortfolioSummary,
+  BudgetPlan,
 } from "./types";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
@@ -76,5 +79,43 @@ export async function trainTwin(id: number): Promise<TrainResult> {
   return apiFetch<TrainResult>(`/api/wells/${id}/ml/train`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
+  });
+}
+
+export async function getPortfolioRanking(
+  gasPrice?: number
+): Promise<PortfolioRankRow[]> {
+  const q = gasPrice ? `?gas_price_usd_mcf=${gasPrice}` : "";
+  return apiFetch<PortfolioRankRow[]>(`/api/portfolio/ranking${q}`, {
+    headers: { "Content-Type": "application/json" },
+  });
+}
+
+export async function getPortfolioSummary(
+  budgetUsd?: number,
+  gasPrice?: number
+): Promise<PortfolioSummary> {
+  const params = new URLSearchParams();
+  if (budgetUsd) params.set("budget_usd", String(budgetUsd));
+  if (gasPrice) params.set("gas_price_usd_mcf", String(gasPrice));
+  const qs = params.toString();
+  return apiFetch<PortfolioSummary>(`/api/portfolio/summary?${qs}`);
+}
+
+export async function planBudget(
+  budgetUsd: number,
+  gasPrice?: number,
+  onePerWell: boolean = true,
+  maxSteps: number = 120
+): Promise<BudgetPlan> {
+  return apiFetch<BudgetPlan>("/api/portfolio/budget", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      budget_usd: budgetUsd,
+      gas_price_usd_mcf: gasPrice,
+      one_per_well: onePerWell,
+      max_steps: maxSteps,
+    }),
   });
 }

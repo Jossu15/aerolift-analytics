@@ -116,3 +116,57 @@ export interface MlStatus {
   metrics?: Record<string, number>;
   trained_at?: string;
 }
+
+export interface PortfolioRankRow {
+  well_id: number;
+  tag: string;
+  q_nominal_mscfd: number | null;
+  at_risk: boolean;
+  actionable: boolean;
+  intervention: string | null;
+  label: string | null;
+  cost_usd: number | null;
+  npv_usd: number | null;
+  roi_pct: number | null;
+  payback_months: number | null;
+  incremental_gas_mmscf: number | null;
+  life_extension_days: number | null;
+}
+
+export interface BudgetChoice {
+  well_id: number | null;
+  tag: string | null;
+  intervention: string;
+  label: string | null;
+  cost_usd: number;
+  npv_usd: number;
+  roi_pct: number | null;
+  payback_months: number | null;
+  incremental_gas_mmscf: number;
+  life_extension_days: number | null;
+}
+
+export interface BudgetPlan {
+  chosen: BudgetChoice[];
+  total_cost_usd: number;
+  total_npv_usd: number;
+  budget_usd: number;
+  utilization_pct: number;
+  wells_selected: number;
+  total_incremental_gas_mmscf: number;
+}
+
+export interface PortfolioSummary {
+  wells_total: number;
+  wells_at_risk: number;
+  gas_at_risk_mscfd: number;
+  wells_actionable: number;
+  gas_actionable_mscfd: number;
+  wells_positive_npv: number;
+  positive_npv_usd: number;
+  positive_cost_usd: number;
+  positive_incremental_gas_mmscf: number;
+  positive_roi_mean_pct: number | null;
+  positive_payback_mean_months: number | null;
+  budget: BudgetPlan | null;
+}
