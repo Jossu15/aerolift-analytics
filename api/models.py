@@ -52,6 +52,11 @@ class Well(Base):
     liquid_sg = Column(Float, nullable=False, default=1.0)
     q_gas_nominal_mscfd = Column(Float, nullable=False, default=0.0)
 
+    # Alert engine: per-well risk tolerance. The semaphore turns yellow
+    # (at_risk) when the velocity margin falls below this % of q_crit.
+    alert_margin_pct = Column(Float, nullable=False, default=20.0,
+                              server_default="20.0")
+
     # Physics model choices
     vlp_model = Column(String(32), nullable=False, default="beggs_brill")
     load_method = Column(String(16), nullable=False, default="turner")

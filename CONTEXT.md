@@ -2,7 +2,7 @@
 
 **Platform:** Gas & oil well optimization engine with physics-first models, ML corrections, and economic evaluation.
 **Primary Source:** *Gas Reservoir Engineering* by Lee & Wattenbarger (SPE Textbook Vol. 5).
-**Status:** 275 tests passing, Docker stack running (Postgres + FastAPI + Next.js + Streamlit).
+**Status:** 287 tests passing, Docker stack running (Postgres + FastAPI + Next.js + Streamlit).
 
 ---
 
@@ -477,7 +477,8 @@ dashboard → Streamlit → http://localhost:8501
 ```
 
 ### Database Models (`api/models.py`)
-- `Well` — completion params, type (gas/oil), IPR coefficients.
+- `Well` — completion params, type (gas/oil), IPR coefficients,
+  `alert_margin_pct` (umbral de riesgo por pozo, default 20 %).
 - `ApiKey` — authentication, ownership, tier (basic/pro).
 - `ProductionHistory` — daily SCADA/time-series with optional pwf.
 - `WellAlert` — snapshot persistido del semáforo por pozo (historia del alert engine).
@@ -486,7 +487,8 @@ dashboard → Streamlit → http://localhost:8501
 API key-based (`X-API-Key` header). Tiers: basic (reading), pro (full analytics).
 
 ### Alembic Migrations
-7 versions: schema creation, friction_multiplier, calibration, SCADA, oil wells, well_alerts.
+8 versions: schema creation, friction_multiplier, calibration, SCADA,
+oil wells, well_alerts, alert_margin_pct (head `f4a11e7c2b90`).
 
 ---
 
@@ -495,8 +497,12 @@ API key-based (`X-API-Key` header). Tiers: basic (reading), pro (full analytics)
 ### Motor (`api/alerts_engine.py`)
 - `compute_portfolio_alerts(db, wells, source)` evalúa cada pozo a su tasa
   nominal, persiste un snapshot `WellAlert` (mantiene historial) y, si el
-  pozo escala a peor severidad que la última notificada, dispara Slack.
-- Semáforo: loaded→red, metastable→orange, at_risk→yellow, stable→green.
+  pozo escala a peor severidad que la última notificada, dispara
+  Slack y/o email (`_notify`, adaptadores no-op sin configuración).
+  El snapshot incluye `days_to_risk` calculado con `forecast_view` (None
+  si el forecast no aplica o falla).
+- Semáforo: loaded→red, metastable→orange, at_risk→yellow (margen <
+  `alert_margin_pct` del pozo), stable→green.
 
 ### Scheduler (`api/scheduler.py`) — "ingesta continua"
 - Loop asyncio en el lifespan de FastAPI (un worker uvicorn).
@@ -505,9 +511,12 @@ API key-based (`X-API-Key` header). Tiers: basic (reading), pro (full analytics)
 
 ### Notificaciones (`api/notifications.py`)
 - Slack incoming webhook vía `SLACK_WEBHOOK_URL` (sin dependencias, urllib).
-- Sin webhook configura silenciosamente no-op; fallo de fan-out nunca rompe
-  la persistencia. `last_notified_severity` evita spam: un pozo solo pinge
-  una vez por nivel de severidad alcanzado.
+- Email vía SMTP (stdlib `smtplib`) con env `EMAIL_SMTP_HOST`,
+  `EMAIL_SMTP_PORT`, `EMAIL_SMTP_USER`, `EMAIL_SMTP_PASSWORD`, `EMAIL_FROM`,
+  `EMAIL_TO` (lista separada por comas) y `EMAIL_TLS` (default on).
+- Sin webhook/credenciales configura silenciosamente no-op; un fallo de
+  fan-out nunca rompe la persistencia. `last_notified_severity` evita
+  spam: un pozo solo pinge una vez por nivel de severidad alcanzado.
 
 ### Frontend
 - `/dashboard` consulta `GET /api/wells/alerts` con polling cada

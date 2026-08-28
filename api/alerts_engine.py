@@ -3,8 +3,8 @@
 `compute_portfolio_alerts` evaluates every well at its nominal rate,
 stores a timestamped WellAlert snapshot (keeping history) and, when a
 well escalates to a worse severity than the last one notified, posts a
-Slack message. `last_notified_severity` on the snapshot gates fan-out
-so a well only pings once per severity level reached.
+Slack message and/or email. `last_notified_severity` on the snapshot
+gates fan-out so a well only pings once per severity level reached.
 """
 
 import datetime as _dt
@@ -12,7 +12,7 @@ import datetime as _dt
 from sqlalchemy.orm import Session
 
 from api import crud, engines, models
-from api.notifications import send_slack_message
+from api.notifications import send_email_message, send_slack_message
 
 SEVERITY_RANK = {"green": 0, "yellow": 1, "orange": 2, "red": 3}
 
@@ -32,6 +32,20 @@ def _slack_text(alert: dict) -> str:
                 status=alert["status"], message=alert["message"], m=m)
 
 
+def _notify(alert: dict) -> None:
+    """Fan-out an escalation to every configured channel (Slack, email).
+
+    Each adapter is its own no-op when unconfigured and never raises,
+    so a failure here must not break snapshot persistence.
+    """
+    text = _slack_text(alert)
+    send_slack_message(text)
+    send_email_message(
+        "AeroLift - {tag} escalo a {severity}".format(
+            tag=alert["tag"], severity=alert["severity"].upper()),
+        text.replace("*", ""))
+
+
 def compute_portfolio_alerts(db: Session, wells=None, source="manual"):
     """Evaluate, store and (on escalation) notify the given wells.
 
@@ -44,7 +58,7 @@ def compute_portfolio_alerts(db: Session, wells=None, source="manual"):
     created = []
     now = _dt.datetime.now(_dt.timezone.utc).replace(tzinfo=None)
     for w in query_wells:
-        alert = engines.portfolio_alert(w)
+        alert = engines.portfolio_alert(w, db=db)
         if alert is None:
             continue
         last = crud.latest_well_alert(db, w.id)
@@ -67,7 +81,7 @@ def compute_portfolio_alerts(db: Session, wells=None, source="manual"):
             else (last.last_notified_severity if last else None))
         db.add(row)
         if notify:
-            send_slack_message(_slack_text(alert))
+            _notify(alert)
         out = dict(alert, computed_at=now)
         created.append(out)
     db.commit()

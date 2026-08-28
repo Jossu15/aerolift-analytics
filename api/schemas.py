@@ -32,6 +32,11 @@ class WellBase(BaseModel):
     liquid_sg: float = Field(default=1.0, gt=0)
     q_gas_nominal_mscfd: float = Field(default=0.0, ge=0)
 
+    alert_margin_pct: float = Field(
+        default=20.0, gt=0.0, le=100.0,
+        description="Velocity-margin % below which the alert semaphore "
+                    "turns at_risk (per well)")
+
     vlp_model: str = Field(default="beggs_brill")
     load_method: str = Field(default="turner")
 
@@ -97,6 +102,8 @@ class WellUpdate(BaseModel):
     q_water_bpd: Optional[float] = Field(default=None, ge=0)
     liquid_sg: Optional[float] = Field(default=None, gt=0)
     q_gas_nominal_mscfd: Optional[float] = Field(default=None, ge=0)
+    alert_margin_pct: Optional[float] = Field(default=None, gt=0.0,
+                                              le=100.0)
     vlp_model: Optional[str] = None
     load_method: Optional[str] = None
     friction_multiplier: Optional[float] = Field(default=None, gt=0.0,

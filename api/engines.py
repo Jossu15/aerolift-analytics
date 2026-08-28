@@ -302,28 +302,47 @@ def forecast_view(db: Session, well, time_step_days=30,
     return result
 
 
-def portfolio_alert(well) -> Optional[dict]:
+def _alert_days_to_risk(db, well):
+    """Days until the forecast stops flowing (or None when unavailable).
+
+    Reuses forecast_view so the semaphore carries the same health score
+    as the forecast tab: the well's preview p/z + IPR/VLP loop reports
+    the first day its status leaves flowing/metastable. Expensive enough
+    to be bounded (60 steps) and never fatal: any failure -> None.
+    """
+    try:
+        fv = forecast_view(db, well, max_steps=60)
+        return fv.get("days_to_risk")
+    except Exception:
+        return None
+
+
+def portfolio_alert(well, db=None) -> Optional[dict]:
     """Semaphore row for one well of the whole-portfolio dashboard.
 
     Evaluated at the nominal rate and mapped onto the green/yellow/
     orange/red semaphore used by the UI (loaded->red, metastable->
     orange, at_risk->yellow, stable->green). Wells without a nominal
-    rate return None (can't be evaluated).
+    rate return None (can't be evaluated). When a DB session is passed,
+    the row also carries days_to_risk from the p/z forecast; otherwise
+    (and on any forecast failure) it stays None.
     """
     q = float(well.q_gas_nominal_mscfd or 0.0)
     if q <= 0:
         return None
     snap = loading_snapshot(well, q)
     margin = snap.get("margin_pct")
+    threshold = float(getattr(well, "alert_margin_pct", None) or 20.0)
     if snap["is_loading"]:
         status, color, message = "loaded", "red", \
             "Cargado - colapsar sin intervencion"
     elif snap["metastable_regime"] == "metastable":
         status, color, message = "metastable", "orange", \
             "Estable solo en regimen metaestable (Dousi 2006)"
-    elif margin is not None and margin < 20.0:
+    elif margin is not None and margin < threshold:
         status, color, message = "at_risk", "yellow", \
-            "En riesgo - margen bajo"
+            "En riesgo - margen bajo ({:.0f}% < {:.0f}%)".format(
+                margin, threshold)
     else:
         status, color, message = "stable", "green", "Estable"
     return {
@@ -333,7 +352,8 @@ def portfolio_alert(well) -> Optional[dict]:
         "status": status,
         "message": message,
         "margin_pct": margin,
-        "days_to_risk": None,
+        "days_to_risk": _alert_days_to_risk(db, well) if db is not None
+        else None,
         "v_actual_ft_s": snap.get("v_actual_ft_s"),
         "v_crit_ft_s": snap.get("v_crit_ft_s"),
         "q_crit_mscfd": snap.get("q_crit_mscfd"),

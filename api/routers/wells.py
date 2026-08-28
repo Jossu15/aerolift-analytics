@@ -107,7 +107,7 @@ def list_alerts(limit: int = 200, offset: int = 0,
                             owner_key_id=key.id)
     alerts = []
     for w in wells:
-        snap = engines.portfolio_alert(w)
+        snap = engines.portfolio_alert(w, db=db)
         if snap is not None:
             alerts.append(schemas.AlertOut(**snap))
     return alerts

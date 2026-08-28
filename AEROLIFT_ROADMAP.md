@@ -94,3 +94,25 @@ Producto que se vende no al ingeniero sino al gerente de producción/activo — 
 4. Recién ahí entrar a Fase 2 (calibración) y Fase 3 (portafolio).
 
 ¿Por cuál de estos cuatro pasos quieres que empecemos a escribir código?
+
+---
+
+## Estado de ejecución (tracking)
+
+- [x] **Fase 1 (alertas activas)** — semáforo de portafolio, snapshots
+  `WellAlert`, scheduler, dashboard `/dashboard`. Commit `db2d442`.
+- [x] **Fase 1.5 (alertas refinadas)**:
+  - 1.5.1 — el semáforo ahora lleva `days_to_risk` real desde el forecast
+    p/z (en vez de `None` fijo); sin `db` no se calcula (sigue `None`).
+  - 1.5.2 — umbral de riesgo por pozo: columna `alert_margin_pct`
+    (default 20 %) + migración Alembic `f4a11e7c2b90`; reemplaza el 20
+    fijo del semáforo y queda editable vía PATCH/well.
+  - 1.5.3 — notificación email vía SMTP (stdlib `smtplib`, env `EMAIL_*`);
+    no-op sin credenciales, igual que Slack; fan-out Slack+email en
+    escalamientos con dedup por severidad.
+  - 287 tests backend verdes.
+- [ ] **Fase 2 — Digital Twin** (loop de calibración + TwinModel, módulos
+  Barnea/Chen/Liu/Ikpeka, loading ensemble ±1σ, UI de confianza).
+- [ ] **Fase 3 — Portfolio Optimizer** (endpoints `/api/portfolio/*`,
+  ranking NPV/ROI/payback, knapsack de presupuesto, dashboard ejecutivo,
+  reporte PDF).
