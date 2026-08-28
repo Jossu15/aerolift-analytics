@@ -127,6 +127,7 @@ Producto que se vende no al ingeniero sino al gerente de producción/activo — 
     ML expone banda ±1σ (`band_psi`).
   - 2.7 — pestaña "Digital Twin" en el frontend (tsc + eslint limpios).
   - 312 tests backend verdes; smoke WSL con stack completo verde.
+  - Commit `c4b82ea`.
 - [ ] **Fase 3 — Portfolio Optimizer** (endpoints `/api/portfolio/*`,
   ranking NPV/ROI/payback, knapsack de presupuesto, dashboard ejecutivo,
   reporte PDF).
