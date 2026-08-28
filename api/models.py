@@ -3,7 +3,8 @@
 from datetime import datetime, timezone
 
 from sqlalchemy import JSON, Boolean, Column, DateTime, Float, ForeignKey, \
-    Integer, String, UniqueConstraint
+    Integer, String, Text, UniqueConstraint
+from sqlalchemy.orm import relationship
 
 from api.database import Base
 
@@ -186,3 +187,51 @@ class TwinModel(Base):
             "residual_mean_psi": self.residual_mean_psi,
             "residual_std_psi": self.residual_std_psi,
         }
+
+
+class PortfolioRun(Base):
+    """Background portfolio evaluation (Fase 3 rollout): a snapshot of a
+    field-wide ranking/budget computation so the dashboard never blocks
+    the API. Status lifecycle: queued -> running -> done | failed."""
+    __tablename__ = "portfolio_runs"
+
+    id = Column(Integer, primary_key=True)
+    owner_key_id = Column(Integer, ForeignKey("api_keys.id"), nullable=False,
+                          index=True)
+    status = Column(String(16), nullable=False, default="queued")
+    gas_price_usd_mcf = Column(Float, nullable=False, default=3.5)
+    max_steps = Column(Integer, nullable=False, default=180)
+    wells_total = Column(Integer, nullable=False, default=0)
+    wells_actionable = Column(Integer, nullable=False, default=0)
+    summary_json = Column(JSON)
+    error = Column(Text)
+    created_at = Column(DateTime, nullable=False, default=_utcnow)
+    finished_at = Column(DateTime)
+
+    items = relationship(
+        "PortfolioRunItem", back_populates="run",
+        cascade="all, delete-orphan", lazy="selectin")
+
+
+class PortfolioRunItem(Base):
+    """Denormalized best-option result for one well inside a run."""
+    __tablename__ = "portfolio_run_items"
+
+    id = Column(Integer, primary_key=True)
+    run_id = Column(Integer, ForeignKey("portfolio_runs.id"), nullable=False,
+                    index=True)
+    well_id = Column(Integer, nullable=False, index=True)
+    tag = Column(String(64), nullable=False)
+    at_risk = Column(Boolean, nullable=False, default=True)
+    q_nominal_mscfd = Column(Float)
+    actionable = Column(Boolean, nullable=False, default=False)
+    intervention = Column(String(32))
+    label = Column(String(128))
+    cost_usd = Column(Float)
+    npv_usd = Column(Float)
+    roi_pct = Column(Float)
+    payback_months = Column(Integer)
+    incremental_gas_mmscf = Column(Float)
+    life_extension_days = Column(Float)
+
+    run = relationship("PortfolioRun", back_populates="items")
