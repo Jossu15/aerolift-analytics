@@ -9,11 +9,13 @@ db session bound to the well, so the same code runs safely in any thread;
 ``portfolio_reports`` accepts any ``Session`` instance.
 """
 
+from concurrent.futures import ThreadPoolExecutor
 from typing import Optional
 
 from sqlalchemy.orm import Session
 
 from api import crud, engines, models
+from api.database import SessionLocal
 from math_engine import portfolio as portfolio_engine
 
 DEFAULT_GAS_PRICE = 3.5
@@ -42,28 +44,30 @@ def well_params(db: Session, well: models.Well) -> dict:
     }
 
 
+def build_row(db: Session, w: models.Well) -> dict:
+    """Portfolio input row for one well (alert + p/z preview)."""
+    q = float(w.q_gas_nominal_mscfd or 0.0)
+    alert = None
+    if q > 0:
+        try:
+            alert = engines.portfolio_alert(w, db=db)
+        except Exception:
+            alert = None
+    gp_list, p_list, _ = engines.preview_decline_history(db, w)
+    return {
+        "well_id": w.id,
+        "tag": w.tag,
+        "params": well_params(db, w),
+        "gp_list": gp_list,
+        "p_list": p_list,
+        "q_nominal_mscfd": q,
+        "at_risk": bool(alert is not None and alert["severity"] != "green"),
+    }
+
+
 def build_rows(db: Session, wells) -> list:
     """Portfolio input rows for rank_portfolio: one dict per well."""
-    rows = []
-    for w in wells:
-        q = float(w.q_gas_nominal_mscfd or 0.0)
-        alert = None
-        if q > 0:
-            try:
-                alert = engines.portfolio_alert(w, db=db)
-            except Exception:
-                alert = None
-        gp_list, p_list, _ = engines.preview_decline_history(db, w)
-        rows.append({
-            "well_id": w.id,
-            "tag": w.tag,
-            "params": well_params(db, w),
-            "gp_list": gp_list,
-            "p_list": p_list,
-            "q_nominal_mscfd": q,
-            "at_risk": bool(alert is not None and alert["severity"] != "green"),
-        })
-    return rows
+    return [build_row(db, w) for w in wells]
 
 
 def portfolio_reports(db: Session, owner_key_id: int,
@@ -76,6 +80,39 @@ def portfolio_reports(db: Session, owner_key_id: int,
     return portfolio_engine.rank_portfolio(
         rows, gas_price_usd_mcf=gas_price_usd_mcf,
         max_steps=max_steps, time_step_days=30.0)
+
+
+def portfolio_reports_parallel(db: Session, owner_key_id: int,
+                               gas_price_usd_mcf: float = DEFAULT_GAS_PRICE,
+                               max_steps: int = DEFAULT_MAX_STEPS,
+                               workers: int = 4) -> list:
+    """Like ``portfolio_reports`` but evaluates the wells concurrently.
+
+    Each worker opens its own Session (safe cross-thread; the row build is
+    DB-bound) and the pure per-well economics run in parallel afterwards,
+    so a multi-well run scales instead of paying the wells in sequence.
+    Results are byte-for-byte identical to ``portfolio_reports``.
+    """
+    wells = crud.list_wells(db, limit=MAX_WELLS, offset=0,
+                            owner_key_id=owner_key_id)
+    n = max(1, len(wells))
+
+    def _build(well_id: int) -> dict:
+        s = SessionLocal()
+        try:
+            w = s.query(models.Well).filter(models.Well.id == well_id).one()
+            return build_row(s, w)
+        finally:
+            s.close()
+
+    pool = max(1, min(int(workers), n))
+    with ThreadPoolExecutor(max_workers=pool,
+                            thread_name_prefix="portfolio-build") as ex:
+        futures = [ex.submit(_build, w.id) for w in wells]
+        rows = [f.result() for f in futures]
+    return portfolio_engine.rank_portfolio_parallel(
+        rows, gas_price_usd_mcf=gas_price_usd_mcf,
+        max_steps=max_steps, time_step_days=30.0, workers=pool)
 
 
 def summary_of(reports: list) -> dict:

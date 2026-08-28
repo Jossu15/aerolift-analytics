@@ -160,3 +160,9 @@ Producto que se vende no al ingeniero sino al gerente de producción/activo — 
   - 3.9 — suite completa **342 passed**; smoke WSL con stack rebuildado
     verde; docs CONTEXT/roadmap actualizados (10 migraciones, head
     `c5efab83421b`).
+  - 3.10 — evaluación **paralela por pozo dentro del run**:
+    `rank_portfolio_parallel` (mismo resultado de `rank_portfolio`, mismo
+    orden/sort) + `portfolio_reports_parallel` (row build con sesión propia
+    por worker, segura para sqlite/Postgres). El runner usa
+    `PORTFOLIO_WORKERS` (default 4). Tests: equivalencia paralelo===secuencial
+    y un run batch multi-pozo; suite completa **344 passed**.

@@ -2,7 +2,7 @@
 
 **Platform:** Gas & oil well optimization engine with physics-first models, ML corrections, and economic evaluation.
 **Primary Source:** *Gas Reservoir Engineering* by Lee & Wattenbarger (SPE Textbook Vol. 5).
-**Status:** 342 tests passing, Docker stack running (Postgres + FastAPI + Next.js + Streamlit). Fase 2 (Digital Twin) completa: regeneración física por pozo, ensemble Barnea, UI de confianza. Fase 3 (Portfolio Optimizer) completa: ranking de intervención, knapsack de presupuesto, dashboard ejecutivo, reporte PDF y batch runner en background.
+**Status:** 344 tests passing, Docker stack running (Postgres + FastAPI + Next.js + Streamlit). Fase 2 (Digital Twin) completa: regeneración física por pozo, ensemble Barnea, UI de confianza. Fase 3 (Portfolio Optimizer) completa: ranking de intervención, knapsack de presupuesto, dashboard ejecutivo, reporte PDF y batch runner en background (evaluación paralela por pozo dentro del run).
 
 ---
 
@@ -600,19 +600,23 @@ y `models` (aditivos, null si el método clásico no aplica).
 
 ### Batch runner (rollout Fase 3)
 - `api/portfolio_eval.py` — lógica compartida entre endpoints síncronos y
-  el runner: `build_rows` (semáforo `at_risk` + preview p/z por pozo),
-  `portfolio_reports` (todas las wells del key, rankeadas),
-  `summary_of`, `rank_row_schema`/`flat_to_item` (forma portable → columnas
-  de `PortfolioRunItem`).
+  el runner: `build_row`/`build_rows` (semáforo `at_risk` + preview p/z por
+  pozo), `portfolio_reports` (todas las wells del key, rankeadas),
+  `portfolio_reports_parallel` (idem pero con los pozos evaluados en
+  paralelo: cada worker abre su propia `SessionLocal()` para el row build
+  y la economía por pozo corre en `rank_portfolio_parallel`; resultado
+  idéntico al secuencial), `summary_of`, `rank_row_schema`/`flat_to_item`
+  (forma portable → columnas de `PortfolioRunItem`).
 - `api/portfolio_batch.py` — `ThreadPoolExecutor(max_workers=2)` que
   ejecuta runs en background con su propia `SessionLocal()`. Un run pasa
   por `queued → running → done | failed` y persiste summary + items
   (`PortfolioRun`, `PortfolioRunItem`, migración `c5efab83421b`).
   `submit_portfolio_run` encola y devuelve el id; `current_status`/
   `wait_for_run` para polling (tests/scripts). `_prune` mantiene ≤ 200
-  runs por key. El frontend `/portfolio` muestra el último run y su barra
-  "Recalcular en batch" con polling cada 2 s (cae a evaluación síncrona
-  si no hay runs).
+  runs por key. Dentro del run la evaluación por pozo es paralela
+  (`PORTFOLIO_WORKERS` env, default 4). El frontend `/portfolio` muestra
+  el último run y su barra "Recalcular en batch" con polling cada 2 s
+  (cae a evaluación síncrona si no hay runs).
 
 ---
 

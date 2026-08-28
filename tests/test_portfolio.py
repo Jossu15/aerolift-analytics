@@ -4,7 +4,8 @@ import pytest
 
 from math_engine.budget import optimize_budget
 from math_engine.portfolio import INTERVENTIONS, \
-    portfolio_summary, rank_portfolio, well_intervention_options
+    portfolio_summary, rank_portfolio, rank_portfolio_parallel, \
+    well_intervention_options
 
 DEMO_PARAMS = {
     "p_wh": 200.0, "t_wh_f": 100.0, "t_res_f": 170.0,
@@ -85,6 +86,13 @@ class TestRankPortfolio:
         assert by_id[1]["at_risk"] is True
         assert by_id[1]["q_nominal_mscfd"] == 500.0
         assert by_id[2]["at_risk"] is False
+
+    def test_parallel_matches_sequential(self):
+        wells = [_well(1, "W-1"), _well(2, "W-2", at_risk=False, q=1200.0),
+                 _well(3, "W-3", q=400.0)]
+        seq = rank_portfolio(wells)
+        par = rank_portfolio_parallel(wells, workers=2)
+        assert par == seq
 
 
 # ------------------------------------------------------------------

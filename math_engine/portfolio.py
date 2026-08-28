@@ -17,6 +17,7 @@ a database; the API layer feeds it well params + p/z history per well.
 Units: field units (CONTEXT.md). Money in USD.
 """
 
+from concurrent.futures import ThreadPoolExecutor
 import math
 
 from math_engine import economics
@@ -87,6 +88,34 @@ def well_intervention_options(params: dict, gp_list, p_list,
     return options
 
 
+def _evaluate_well(w: dict, gas_price_usd_mcf, costs_usd, targets,
+                   time_step_days, max_steps) -> dict:
+    """One well's report dict (shared by the sequential and parallel
+    rankers so both produce byte-for-byte identical reports)."""
+    options = well_intervention_options(
+        w["params"], w["gp_list"], w["p_list"],
+        well_id=w.get("well_id"), tag=w.get("tag"),
+        gas_price_usd_mcf=gas_price_usd_mcf, costs_usd=costs_usd,
+        targets=targets, time_step_days=time_step_days,
+        max_steps=max_steps)
+    return {
+        "well_id": w.get("well_id"),
+        "tag": w.get("tag"),
+        "q_nominal_mscfd": w.get("q_nominal_mscfd"),
+        "at_risk": bool(w.get("at_risk", True)),
+        "option_count": len(options),
+        "best_option": options[0] if options else None,
+        "options": options,
+    }
+
+
+def _sort_reports(reports: list) -> list:
+    reports.sort(key=lambda r: ((r["best_option"] or {}).get("npv_usd")
+                                if r["best_option"] else -math.inf),
+                 reverse=True)
+    return reports
+
+
 def rank_portfolio(wells, gas_price_usd_mcf=DEFAULT_GAS_PRICE_USD_MCF,
                    costs_usd=None, targets=None,
                    time_step_days=30.0, max_steps=240) -> list:
@@ -105,27 +134,32 @@ def rank_portfolio(wells, gas_price_usd_mcf=DEFAULT_GAS_PRICE_USD_MCF,
         {"well_id", "tag", "q_nominal_mscfd", "at_risk",
          "best_option": dict|None, "options": [...], "option_count": int}
     """
-    reports = []
-    for w in wells:
-        options = well_intervention_options(
-            w["params"], w["gp_list"], w["p_list"],
-            well_id=w.get("well_id"), tag=w.get("tag"),
-            gas_price_usd_mcf=gas_price_usd_mcf, costs_usd=costs_usd,
-            targets=targets, time_step_days=time_step_days,
-            max_steps=max_steps)
-        reports.append({
-            "well_id": w.get("well_id"),
-            "tag": w.get("tag"),
-            "q_nominal_mscfd": w.get("q_nominal_mscfd"),
-            "at_risk": bool(w.get("at_risk", True)),
-            "option_count": len(options),
-            "best_option": options[0] if options else None,
-            "options": options,
-        })
-    reports.sort(key=lambda r: ((r["best_option"] or {}).get("npv_usd")
-                                if r["best_option"] else -math.inf),
-                 reverse=True)
-    return reports
+    reports = [_evaluate_well(w, gas_price_usd_mcf, costs_usd, targets,
+                              time_step_days, max_steps) for w in wells]
+    return _sort_reports(reports)
+
+
+def rank_portfolio_parallel(wells, gas_price_usd_mcf=DEFAULT_GAS_PRICE_USD_MCF,
+                            costs_usd=None, targets=None,
+                            time_step_days=30.0, max_steps=240,
+                            workers: int = 4) -> list:
+    """rank_portfolio() with per-well economics evaluated in parallel.
+
+    The per-well evaluation is pure math on plain dicts, so it runs safely
+    on a thread pool. Reports are collected in input order before the same
+    sort, so the result is identical to ``rank_portfolio`` (only faster:
+    on CPython the physics loops stay GIL-bound, the win is the I/O-driven
+    row build plus the numpy/C-side work that releases the GIL).
+    """
+    n = max(1, len(wells))
+    pool = max(1, min(int(workers), n))
+    with ThreadPoolExecutor(max_workers=pool,
+                            thread_name_prefix="portfolio-rank") as ex:
+        futures = [ex.submit(_evaluate_well, w, gas_price_usd_mcf,
+                             costs_usd, targets, time_step_days,
+                             max_steps) for w in wells]
+        reports = [f.result() for f in futures]
+    return _sort_reports(reports)
 
 
 def portable_best(row: dict) -> dict:

@@ -137,6 +137,27 @@ class TestBatchRuns:
         assert row["tag"]
         assert row["npv_usd"] is not None
 
+    def test_parallel_run_covers_two_wells(self, client, pf_well):
+        import uuid
+        from api import portfolio_batch
+        w2 = _seed_well(client, "W2-" + uuid.uuid4().hex[:8],
+                        q_gas_nominal_mscfd=600.0)
+        try:
+            r = client.post("/api/portfolio/runs",
+                            json={"gas_price_usd_mcf": 3.5, "max_steps": 90})
+            run_id = r.json()["id"]
+            status = portfolio_batch.wait_for_run(run_id, timeout_seconds=300)
+            assert status == "done", portfolio_batch.current_status(run_id)
+            d = client.get("/api/portfolio/runs/{}".format(run_id))
+            detail = d.json()
+            assert detail["summary"]["wells_total"] >= 2
+            ids = {item["well_id"] for item in detail["items"]}
+            assert len(ids) == detail["summary"]["wells_total"]
+            assert all(item["npv_usd"] is not None
+                       for item in detail["items"])
+        finally:
+            client.delete("/api/wells/{}".format(w2))
+
     def test_list_runs_after_batch(self, client, pf_well):
         from api import portfolio_batch
         r = client.post("/api/portfolio/runs",

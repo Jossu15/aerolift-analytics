@@ -13,6 +13,7 @@ cross-thread use with ``check_same_thread=False`` for sqlite).
 
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
+import os
 import time
 
 from api.database import SessionLocal
@@ -21,6 +22,16 @@ from api import portfolio_eval
 
 _executor = ThreadPoolExecutor(max_workers=2,
                                thread_name_prefix="portfolio-run")
+
+
+def _default_workers() -> int:
+    try:
+        return max(1, min(int(os.environ.get("PORTFOLIO_WORKERS", "4")), 32))
+    except ValueError:
+        return 4
+
+
+PORTFOLIO_WORKERS = _default_workers()  # per-well parallel evaluation threads
 
 POLL_BACKOFF_SECONDS = 0.25
 QUEUE_LIMIT = 200  # keep the table lean: drop older runs of the same key
@@ -39,10 +50,10 @@ def _execute(run_id: int) -> None:
         run.status = "running"
         db.commit()
 
-        reports = portfolio_eval.portfolio_reports(
+        reports = portfolio_eval.portfolio_reports_parallel(
             db, run.owner_key_id,
             gas_price_usd_mcf=run.gas_price_usd_mcf,
-            max_steps=run.max_steps)
+            max_steps=run.max_steps, workers=PORTFOLIO_WORKERS)
         summ = portfolio_eval.summary_of(reports)
 
         run.summary_json = dict(summ)
