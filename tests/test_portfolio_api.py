@@ -112,3 +112,57 @@ class TestReportPdf:
     def test_report_pdf_requires_pro(self, basic_client):
         assert (basic_client.get("/api/portfolio/report.pdf").status_code
                 == 403)
+
+
+class TestBatchRuns:
+    def test_full_run_lifecycle(self, client, pf_well):
+        from api import portfolio_batch
+        r = client.post("/api/portfolio/runs",
+                        json={"gas_price_usd_mcf": 3.5, "max_steps": 90})
+        assert r.status_code == 202, r.text
+        body = r.json()
+        run_id = body["id"]
+        assert body["status"] in ("queued", "running", "done")
+
+        status = portfolio_batch.wait_for_run(run_id, timeout_seconds=300)
+        assert status == "done", portfolio_batch.current_status(run_id)
+
+        d = client.get("/api/portfolio/runs/{}".format(run_id))
+        assert d.status_code == 200
+        detail = d.json()
+        assert detail["status"] == "done"
+        assert detail["summary"]["wells_total"] >= 1
+        assert len(detail["items"]) >= 1
+        row = next(i for i in detail["items"] if i["well_id"] == pf_well)
+        assert row["tag"]
+        assert row["npv_usd"] is not None
+
+    def test_list_runs_after_batch(self, client, pf_well):
+        from api import portfolio_batch
+        r = client.post("/api/portfolio/runs",
+                        json={"gas_price_usd_mcf": 3.5, "max_steps": 90})
+        run_id = r.json()["id"]
+        portfolio_batch.wait_for_run(run_id, timeout_seconds=300)
+
+        listing = client.get("/api/portfolio/runs").json()
+        assert any(x["id"] == run_id for x in listing)
+        head = next(x for x in listing if x["id"] == run_id)
+        assert head["status"] == "done"
+        assert head["wells_actionable"] >= 1
+
+    def test_run_isolation_other_operator(self, client, extra_client,
+                                          pf_well):
+        from api import portfolio_batch
+        r = client.post("/api/portfolio/runs",
+                        json={"gas_price_usd_mcf": 3.5, "max_steps": 90})
+        run_id = r.json()["id"]
+        portfolio_batch.wait_for_run(run_id, timeout_seconds=300)
+        assert (extra_client.get("/api/portfolio/runs/{}".format(run_id))
+                .status_code == 404)
+        assert extra_client.get("/api/portfolio/runs").json() == []
+
+    def test_runs_require_pro(self, basic_client):
+        assert basic_client.get("/api/portfolio/runs").status_code == 403
+        assert (basic_client.post("/api/portfolio/runs",
+                                  json={"max_steps": 60})
+                .status_code == 403)

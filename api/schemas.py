@@ -250,6 +250,28 @@ class BudgetOut(BaseModel):
     total_incremental_gas_mmscf: float
 
 
+class PortfolioRunIn(BaseModel):
+    gas_price_usd_mcf: Optional[float] = Field(default=3.5, gt=0)
+    max_steps: int = Field(default=180, gt=0, le=360)
+
+
+class PortfolioRunOut(BaseModel):
+    id: int
+    status: str  # queued | running | done | failed
+    gas_price_usd_mcf: float
+    max_steps: int
+    wells_total: int
+    wells_actionable: int
+    created_at: Optional[_dt.datetime] = None
+    finished_at: Optional[_dt.datetime] = None
+    error: Optional[str] = None
+
+
+class PortfolioRunDetailOut(PortfolioRunOut):
+    summary: Optional[dict] = None
+    items: List[PortfolioRankRow] = []
+
+
 class PortfolioSummaryOut(BaseModel):
     wells_total: int
     wells_at_risk: int

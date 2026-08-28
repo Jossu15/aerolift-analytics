@@ -1,91 +1,32 @@
 """Portfolio endpoints (Fase 3): intervention ranking, budget simulator,
-summary and (later) PDF export. Every path requires the pro tier."""
+summary, background batch runs and PDF export. Pro tier only."""
 
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, Response
+from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy.orm import Session
 
-from api import crud, engines, models, schemas
-from api.auth import get_current_key, require_tier
+from api import models, schemas
+from api import portfolio_batch, portfolio_eval
+from api.auth import require_tier
 from api.database import get_db
+from api.portfolio_eval import DEFAULT_GAS_PRICE, DEFAULT_MAX_STEPS
 from math_engine import budget as budget_engine
-from math_engine import portfolio as portfolio_engine
 
 router = APIRouter(prefix="/api/portfolio", tags=["portfolio"])
 
-DEFAULT_GAS_PRICE = 3.5
-DEFAULT_MAX_STEPS = 180
+
+def _owned_runs(db: Session, key: models.ApiKey):
+    return (db.query(models.PortfolioRun)
+                .filter(models.PortfolioRun.owner_key_id == key.id)
+                .order_by(models.PortfolioRun.id.desc()))
 
 
-def _well_params(db: Session, well: models.Well) -> dict:
-    """Evaluate_intervention params for a stored well (same as the
-    /analysis/economics endpoint uses)."""
-    return {
-        "p_wh": float(well.p_wh),
-        "t_wh_f": float(well.t_wh_f),
-        "t_res_f": float(well.t_res_f),
-        "tvd_ft": float(well.tvd_ft),
-        "tubing_id_in": float(well.tubing_id_in),
-        "gamma_g": float(well.gamma_g),
-        "q_water_bpd": float(well.q_water_bpd or 0.0),
-        "liquid_sg": float(well.liquid_sg),
-        "vlp_model": well.vlp_model,
-        "load_method": well.load_method,
-        "friction_multiplier":
-            float(getattr(well, "friction_multiplier", None) or 1.0),
-        "q_gas_nominal_mscfd": float(well.q_gas_nominal_mscfd or 0.0),
-        "ipr": engines.ipr_spec(db, well),
-    }
-
-
-def _portfolio_reports(db: Session, key: models.ApiKey,
-                       gas_price_usd_mcf: float,
-                       max_steps: int) -> list:
-    """Rank the key's whole well portfolio via math_engine.portfolio."""
-    wells = crud.list_wells(db, owner_key_id=key.id)
-    rows = []
-    for w in wells:
-        q = float(w.q_gas_nominal_mscfd or 0.0)
-        alert = None
-        if q > 0:
-            try:
-                alert = engines.portfolio_alert(w, db=db)
-            except Exception:
-                alert = None
-        params = _well_params(db, w)
-        gp_list, p_list, _ = engines.preview_decline_history(db, w)
-        rows.append({
-            "well_id": w.id,
-            "tag": w.tag,
-            "params": params,
-            "gp_list": gp_list,
-            "p_list": p_list,
-            "q_nominal_mscfd": q,
-            "at_risk": bool(alert is not None and alert["severity"] != "green"),
-        })
-    return portfolio_engine.rank_portfolio(
-        rows, gas_price_usd_mcf=gas_price_usd_mcf,
-        max_steps=max_steps, time_step_days=30.0)
-
-
-def _rank_row_schema(report: dict) -> dict:
-    flat = portfolio_engine.portable_best(report)
-    return {
-        "well_id": flat.get("well_id"),
-        "tag": flat.get("tag"),
-        "q_nominal_mscfd": flat.get("q_nominal_mscfd"),
-        "at_risk": bool(flat.get("at_risk", True)),
-        "actionable": bool(flat.get("actionable", False)),
-        "intervention": flat.get("intervention"),
-        "label": flat.get("label"),
-        "cost_usd": flat.get("cost_usd"),
-        "npv_usd": flat.get("npv_usd"),
-        "roi_pct": flat.get("roi_pct"),
-        "payback_months": flat.get("payback_months"),
-        "incremental_gas_mmscf": flat.get("incremental_gas_mmscf"),
-        "life_extension_days": flat.get("life_extension_days"),
-    }
+def _run_or_404(db: Session, key: models.ApiKey, run_id: int):
+    run = _owned_runs(db, key).filter(models.PortfolioRun.id == run_id).first()
+    if run is None:
+        raise HTTPException(404, "run not found")
+    return run
 
 
 def _budget_result(reports: list, budget_usd: float,
@@ -123,14 +64,54 @@ def _budget_schema(result: dict) -> dict:
     }
 
 
+def _run_out(run: models.PortfolioRun) -> dict:
+    return {
+        "id": run.id,
+        "status": run.status,
+        "gas_price_usd_mcf": run.gas_price_usd_mcf,
+        "max_steps": run.max_steps,
+        "wells_total": run.wells_total,
+        "wells_actionable": run.wells_actionable,
+        "created_at": run.created_at,
+        "finished_at": run.finished_at,
+        "error": run.error,
+    }
+
+
+def _run_detail(db: Session, run: models.PortfolioRun) -> dict:
+    items = []
+    for it in run.items:
+        items.append({
+            "well_id": it.well_id,
+            "tag": it.tag,
+            "q_nominal_mscfd": it.q_nominal_mscfd,
+            "at_risk": it.at_risk,
+            "actionable": it.actionable,
+            "intervention": it.intervention,
+            "label": it.label,
+            "cost_usd": it.cost_usd,
+            "npv_usd": it.npv_usd,
+            "roi_pct": it.roi_pct,
+            "payback_months": it.payback_months,
+            "incremental_gas_mmscf": it.incremental_gas_mmscf,
+            "life_extension_days": it.life_extension_days,
+        })
+    items.sort(key=lambda x: (x["npv_usd"] is None, -(x["npv_usd"] or -1)))
+    return dict(_run_out(run), summary=run.summary_json, items=items)
+
+
+# ------------------------------------------------------------------
+# Sync endpoints (compute inline; small portfolios during development)
+# ------------------------------------------------------------------
 @router.get("/ranking", response_model=List[schemas.PortfolioRankRow])
 def ranking(gas_price_usd_mcf: float = DEFAULT_GAS_PRICE,
             max_steps: int = DEFAULT_MAX_STEPS,
             key: models.ApiKey = Depends(require_tier("pro")),
             db: Session = Depends(get_db)):
     """Best intervention option per well, sorted by NPV (best first)."""
-    reports = _portfolio_reports(db, key, gas_price_usd_mcf, max_steps)
-    return [_rank_row_schema(r) for r in reports]
+    reports = portfolio_eval.portfolio_reports(
+        db, key.id, gas_price_usd_mcf, max_steps)
+    return [portfolio_eval.rank_row_schema(r) for r in reports]
 
 
 @router.post("/budget", response_model=schemas.BudgetOut)
@@ -138,9 +119,8 @@ def budget_plan(payload: schemas.BudgetIn,
                 key: models.ApiKey = Depends(require_tier("pro")),
                 db: Session = Depends(get_db)):
     """Knapsack: pick the NPV-maximizing intervention set under capex."""
-    reports = _portfolio_reports(db, key,
-                                 payload.gas_price_usd_mcf,
-                                 payload.max_steps)
+    reports = portfolio_eval.portfolio_reports(
+        db, key.id, payload.gas_price_usd_mcf, payload.max_steps)
     result = _budget_result(reports, payload.budget_usd,
                             payload.one_per_well)
     return schemas.BudgetOut(**_budget_schema(result))
@@ -153,8 +133,9 @@ def summary(budget_usd: Optional[float] = None,
             key: models.ApiKey = Depends(require_tier("pro")),
             db: Session = Depends(get_db)):
     """Field-level KPIs + (opt.) the optimized package for a budget."""
-    reports = _portfolio_reports(db, key, gas_price_usd_mcf, max_steps)
-    summ = portfolio_engine.portfolio_summary(reports)
+    reports = portfolio_eval.portfolio_reports(
+        db, key.id, gas_price_usd_mcf, max_steps)
+    summ = portfolio_eval.summary_of(reports)
     body = dict(summ)
     if budget_usd and budget_usd > 0:
         result = _budget_result(reports, float(budget_usd), True)
@@ -162,6 +143,41 @@ def summary(budget_usd: Optional[float] = None,
     return schemas.PortfolioSummaryOut(**body)
 
 
+# ------------------------------------------------------------------
+# Background batch runs (async; the dashboard polls status)
+# ------------------------------------------------------------------
+@router.post("/runs", response_model=schemas.PortfolioRunOut, status_code=202)
+def start_run(payload: schemas.PortfolioRunIn,
+              key: models.ApiKey = Depends(require_tier("pro")),
+              db: Session = Depends(get_db)):
+    """Queue a field-wide evaluation; returns immediately with the run id."""
+    run_id = portfolio_batch.submit_portfolio_run(
+        key.id, payload.gas_price_usd_mcf, payload.max_steps)
+    run = _run_or_404(db, key, run_id)
+    return _run_out(run)
+
+
+@router.get("/runs", response_model=List[schemas.PortfolioRunOut])
+def list_runs(limit: int = 20,
+              key: models.ApiKey = Depends(require_tier("pro")),
+              db: Session = Depends(get_db)):
+    """Recent runs of this key, newest first."""
+    items = _owned_runs(db, key).limit(min(limit, 100)).all()
+    return [_run_out(r) for r in items]
+
+
+@router.get("/runs/{run_id}", response_model=schemas.PortfolioRunDetailOut)
+def get_run(run_id: int,
+            key: models.ApiKey = Depends(require_tier("pro")),
+            db: Session = Depends(get_db)):
+    """Full run: status, field summary and per-well ranking items."""
+    run = _run_or_404(db, key, run_id)
+    return _run_detail(db, run)
+
+
+# ------------------------------------------------------------------
+# Reporting
+# ------------------------------------------------------------------
 @router.get("/report.pdf")
 def report_pdf(budget_usd: Optional[float] = None,
                gas_price_usd_mcf: float = DEFAULT_GAS_PRICE,
@@ -173,8 +189,9 @@ def report_pdf(budget_usd: Optional[float] = None,
 
     from math_engine.reporting import (build_report,
                                        portfolio_report_sections)
-    reports = _portfolio_reports(db, key, gas_price_usd_mcf, max_steps)
-    summ = portfolio_engine.portfolio_summary(reports)
+    reports = portfolio_eval.portfolio_reports(
+        db, key.id, gas_price_usd_mcf, max_steps)
+    summ = portfolio_eval.summary_of(reports)
     budget = None
     if budget_usd and budget_usd > 0:
         budget = _budget_result(reports, float(budget_usd), True)
