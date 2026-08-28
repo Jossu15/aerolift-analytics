@@ -137,6 +137,7 @@ class AlertOut(BaseModel):
     q_crit_mscfd: Optional[float] = None
     metastable_regime: Optional[str] = None
     q_min_stable_mscfd: Optional[float] = None
+    computed_at: Optional[_dt.datetime] = None
 
 
 # ------------------------------------------------------------------

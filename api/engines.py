@@ -300,3 +300,43 @@ def forecast_view(db: Session, well, time_step_days=30,
     result["note"] = ("OGIP estimado a partir de la deliverabilidad "
                       "(sin historial p/z cargado) - vista de pronostico")
     return result
+
+
+def portfolio_alert(well) -> Optional[dict]:
+    """Semaphore row for one well of the whole-portfolio dashboard.
+
+    Evaluated at the nominal rate and mapped onto the green/yellow/
+    orange/red semaphore used by the UI (loaded->red, metastable->
+    orange, at_risk->yellow, stable->green). Wells without a nominal
+    rate return None (can't be evaluated).
+    """
+    q = float(well.q_gas_nominal_mscfd or 0.0)
+    if q <= 0:
+        return None
+    snap = loading_snapshot(well, q)
+    margin = snap.get("margin_pct")
+    if snap["is_loading"]:
+        status, color, message = "loaded", "red", \
+            "Cargado - colapsar sin intervencion"
+    elif snap["metastable_regime"] == "metastable":
+        status, color, message = "metastable", "orange", \
+            "Estable solo en regimen metaestable (Dousi 2006)"
+    elif margin is not None and margin < 20.0:
+        status, color, message = "at_risk", "yellow", \
+            "En riesgo - margen bajo"
+    else:
+        status, color, message = "stable", "green", "Estable"
+    return {
+        "well_id": well.id,
+        "tag": well.tag,
+        "severity": color,
+        "status": status,
+        "message": message,
+        "margin_pct": margin,
+        "days_to_risk": None,
+        "v_actual_ft_s": snap.get("v_actual_ft_s"),
+        "v_crit_ft_s": snap.get("v_crit_ft_s"),
+        "q_crit_mscfd": snap.get("q_crit_mscfd"),
+        "metastable_regime": snap.get("metastable_regime"),
+        "q_min_stable_mscfd": snap.get("q_min_stable_mscfd"),
+    }

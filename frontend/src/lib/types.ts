@@ -86,4 +86,5 @@ export interface Alert {
   q_crit_mscfd: number | null;
   metastable_regime: string | null;
   q_min_stable_mscfd: number | null;
+  computed_at: string | null;
 }

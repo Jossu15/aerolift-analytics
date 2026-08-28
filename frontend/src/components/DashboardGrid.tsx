@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { getAlerts } from "@/lib/api";
 import type { Alert } from "@/lib/types";
 import WellCard from "./WellCard";
@@ -11,20 +11,30 @@ export default function DashboardGrid() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<string>("all");
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+
+  const POLL_MS = Number(process.env.NEXT_PUBLIC_ALERT_POLL_MS || 60000);
+
+  const load = useCallback(async () => {
+    try {
+      const data = await getAlerts();
+      setAlerts(data);
+      setLastUpdated(new Date());
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Error desconocido");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
-    async function load() {
-      try {
-        const data = await getAlerts();
-        setAlerts(data);
-      } catch (e: unknown) {
-        setError(e instanceof Error ? e.message : "Error desconocido");
-      } finally {
-        setLoading(false);
-      }
-    }
-    load();
-  }, []);
+    const initial = setTimeout(load, 0);
+    const id = setInterval(load, POLL_MS);
+    return () => {
+      clearTimeout(initial);
+      clearInterval(id);
+    };
+  }, [load, POLL_MS]);
 
   const filtered =
     filter === "all"
@@ -59,9 +69,26 @@ export default function DashboardGrid() {
     );
   }
 
+  const updatedLabel = lastUpdated
+    ? lastUpdated.toLocaleTimeString()
+    : "nunca";
+
   return (
     <div>
-      <AlertsPanel alerts={alerts} />
+      <div className="flex items-center justify-between mt-2 mb-1">
+        <AlertsPanel alerts={alerts} />
+        <div className="flex items-center gap-3 shrink-0 ml-4">
+          <span className="text-xs text-gray-400 whitespace-nowrap">
+            Actualizado {updatedLabel}
+          </span>
+          <button
+            onClick={() => load()}
+            className="px-3 py-1.5 rounded-lg text-xs font-medium bg-gray-100 text-gray-600 hover:bg-gray-200 transition"
+          >
+            Actualizar
+          </button>
+        </div>
+      </div>
 
       <div className="flex gap-2 mt-6 mb-4 flex-wrap">
         {(["all", "stable", "at_risk", "metastable", "loaded"] as const).map(

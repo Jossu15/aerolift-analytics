@@ -13,6 +13,7 @@ Auth: every /api/* endpoint requires X-API-Key (mint keys with
 scripts/mint_key.py). /health and / stay open for liveness probes.
 """
 
+import asyncio
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -20,12 +21,25 @@ from fastapi import FastAPI
 from api import __version__
 from api.database import init_db
 from api.routers import analysis, auth, bulk, ml, scada, wells
+from api.scheduler import scheduler_enabled
 
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     init_db()
+    alert_task = None
+    if scheduler_enabled():
+        from api.scheduler import alert_loop
+        stop = asyncio.Event()
+        alert_task = asyncio.create_task(alert_loop(stop))
     yield
+    if alert_task is not None:
+        stop.set()
+        alert_task.cancel()
+        try:
+            await alert_task
+        except asyncio.CancelledError:
+            pass
 
 
 def create_app() -> FastAPI:

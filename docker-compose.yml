@@ -40,6 +40,9 @@ services:
     environment:
       DATABASE_URL: postgresql+psycopg2://aerolift:${POSTGRES_PASSWORD:-aerolift_dev_password}@db:5432/aerolift
       AEROLIFT_ML_DIR: /data/ml_models
+      ALERT_SCHEDULER_ENABLED: "true"
+      ALERT_POLL_SECONDS: "300"
+      SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL:-}
     ports:
       - "8000:8000"
     volumes:

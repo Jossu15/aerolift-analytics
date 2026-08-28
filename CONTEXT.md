@@ -2,7 +2,7 @@
 
 **Platform:** Gas & oil well optimization engine with physics-first models, ML corrections, and economic evaluation.
 **Primary Source:** *Gas Reservoir Engineering* by Lee & Wattenbarger (SPE Textbook Vol. 5).
-**Status:** 227 tests passing, Docker stack running (Postgres + FastAPI + Streamlit).
+**Status:** 275 tests passing, Docker stack running (Postgres + FastAPI + Next.js + Streamlit).
 
 ---
 
@@ -429,9 +429,13 @@ Structure: title → (heading, [lines]) sections → footer with citation.
 | GET | `/api/wells/{id}/analysis/nodal` | pro | IPR/VLP intersections |
 | GET | `/api/wells/{id}/analysis/traverse` | basic | Pressure vs depth |
 | POST | `/api/wells/{id}/analysis/forecast` | pro | p/z decline + death day |
+| GET | `/api/wells/{id}/analysis/forecast-view` | pro | Forecast preview (OGIP estimado, sin historial p/z) |
+| GET | `/api/wells/{id}/analysis/charts` | basic | 4 figuras Plotly (operating envelope, vcrit vs P/T/D) |
 | GET | `/api/wells/{id}/analysis/calibration` | pro | VLP vs measured BHFP |
 | POST | `/api/wells/{id}/analysis/economics` | pro | Intervention what-if |
 | GET | `/api/wells/{id}/analysis/report.pdf` | pro | PDF summary |
+| GET | `/api/wells/alerts` | basic | Semáforo del portafolio (último snapshot o evaluación on-the-fly) |
+| POST | `/api/wells/alerts/recompute` | pro | Recalcular y persistir snapshot ahora (+ notifica escalamientos) |
 
 ### Oil Well Endpoints
 | Method | Path | Description |
@@ -476,9 +480,36 @@ dashboard → Streamlit → http://localhost:8501
 - `Well` — completion params, type (gas/oil), IPR coefficients.
 - `ApiKey` — authentication, ownership, tier (basic/pro).
 - `ProductionHistory` — daily SCADA/time-series with optional pwf.
+- `WellAlert` — snapshot persistido del semáforo por pozo (historia del alert engine).
 
 ### Auth
 API key-based (`X-API-Key` header). Tiers: basic (reading), pro (full analytics).
 
 ### Alembic Migrations
-6 versions: schema creation, friction_multiplier, calibration, SCADA, oil wells.
+7 versions: schema creation, friction_multiplier, calibration, SCADA, oil wells, well_alerts.
+
+---
+
+## 21. Alert Engine & Scheduler (Fase 1 - alertas activas)
+
+### Motor (`api/alerts_engine.py`)
+- `compute_portfolio_alerts(db, wells, source)` evalúa cada pozo a su tasa
+  nominal, persiste un snapshot `WellAlert` (mantiene historial) y, si el
+  pozo escala a peor severidad que la última notificada, dispara Slack.
+- Semáforo: loaded→red, metastable→orange, at_risk→yellow, stable→green.
+
+### Scheduler (`api/scheduler.py`) — "ingesta continua"
+- Loop asyncio en el lifespan de FastAPI (un worker uvicorn).
+- Env: `ALERT_SCHEDULER_ENABLED` (1/true enciende; default off),
+  `ALERT_POLL_SECONDS` (default 300).
+
+### Notificaciones (`api/notifications.py`)
+- Slack incoming webhook vía `SLACK_WEBHOOK_URL` (sin dependencias, urllib).
+- Sin webhook configura silenciosamente no-op; fallo de fan-out nunca rompe
+  la persistencia. `last_notified_severity` evita spam: un pozo solo pinge
+  una vez por nivel de severidad alcanzado.
+
+### Frontend
+- `/dashboard` consulta `GET /api/wells/alerts` con polling cada
+  `NEXT_PUBLIC_ALERT_POLL_MS` ms (default 60000) + botón "Actualizar".
+- muestra "Actualizado HH:MM:SS" (timestamp `computed_at` del snapshot).

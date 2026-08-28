@@ -10,7 +10,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from api import crud, engines, models, schemas
-from api.auth import get_current_key, owns_well
+from api.auth import get_current_key, owns_well, require_tier
 from api.database import get_db
 from math_engine.data_quality import validate_well_inputs
 from math_engine.ipr import fit_rawlins_schellhardt
@@ -88,51 +88,49 @@ def list_alerts(limit: int = 200, offset: int = 0,
                 db: Session = Depends(get_db)):
     """Semaphore alerts for the operator's whole well portfolio.
 
-    Each well is evaluated at its nominal rate and mapped onto the
-    green/yellow/orange/red semaphore used by the dashboard:
+    Serves the latest persisted snapshot per well (from the alert
+    scheduler or a manual recompute) when any exist; otherwise falls
+    back to an on-the-fly evaluation at each well's nominal rate:
         loaded        -> red
         metastable    -> orange
         at_risk       -> yellow
         stable        -> green
     Wells without a nominal rate are skipped (can't evaluate).
     """
+    from api.alerts_engine import has_owned_snapshots, latest_alert_dicts
+
+    if has_owned_snapshots(db, key):
+        return [schemas.AlertOut(**d)
+                for d in latest_alert_dicts(db, key, limit=limit)]
+
     wells = crud.list_wells(db, limit=limit, offset=offset,
                             owner_key_id=key.id)
-    from api import engines as _engines
-
-    def _message(w, snap):
-        if snap["is_loading"]:
-            return "Cargado - colapsar sin intervencion"
-        if snap["metastable_regime"] == "metastable":
-            return "Estable solo en regimen metaestable (Dousi 2006)"
-        m = snap.get("margin_pct")
-        return "Estable" if (m is None or m >= 20.0) else \
-            "En riesgo - margen bajo"
-
     alerts = []
     for w in wells:
-        if not (w.q_gas_nominal_mscfd or 0) > 0:
-            continue
-        snap = _engines.loading_snapshot(w, float(w.q_gas_nominal_mscfd))
-        margin = snap.get("margin_pct")
-        if snap["is_loading"]:
-            status, color = "loaded", "red"
-        elif snap["metastable_regime"] == "metastable":
-            status, color = "metastable", "orange"
-        elif margin is not None and margin < 20.0:
-            status, color = "at_risk", "yellow"
-        else:
-            status, color = "stable", "green"
-        alerts.append(schemas.AlertOut(
-            well_id=w.id, tag=w.tag, severity=color, status=status,
-            message=_message(w, snap), margin_pct=margin,
-            days_to_risk=None,
-            v_actual_ft_s=snap.get("v_actual_ft_s"),
-            v_crit_ft_s=snap.get("v_crit_ft_s"),
-            q_crit_mscfd=snap.get("q_crit_mscfd"),
-            metastable_regime=snap.get("metastable_regime"),
-            q_min_stable_mscfd=snap.get("q_min_stable_mscfd")))
+        snap = engines.portfolio_alert(w)
+        if snap is not None:
+            alerts.append(schemas.AlertOut(**snap))
     return alerts
+
+
+@router.post("/alerts/recompute", response_model=List[schemas.AlertOut])
+def recompute_alerts(limit: int = 200, offset: int = 0,
+                     key: models.ApiKey = Depends(require_tier("pro")),
+                     db: Session = Depends(get_db)):
+    """Re-evaluate the operator's wells now and persist a new snapshot.
+
+    Returns the freshly computed semaphore rows (each carries its
+    computed_at). Discovers severity escalations and notifies Slack when
+    a webhook is configured - duplicated with the background scheduler
+    so an operator can force a refresh on demand.
+    """
+    from api.alerts_engine import SEVERITY_RANK, compute_portfolio_alerts
+
+    wells = crud.list_wells(db, limit=limit, offset=offset,
+                            owner_key_id=key.id)
+    rows = compute_portfolio_alerts(db, wells=wells, source="manual")
+    rows.sort(key=lambda d: (SEVERITY_RANK[d["severity"]], d["well_id"]))
+    return [schemas.AlertOut(**d) for d in rows]
 
 
 @router.get("/{well_id}", response_model=schemas.WellOut)

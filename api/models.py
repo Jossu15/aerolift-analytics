@@ -114,3 +114,31 @@ class ScadaReading(Base):
     is_loading = Column(Boolean, nullable=False)
     margin_fraction = Column(Float)
     severity = Column(String(16))
+
+
+class WellAlert(Base):
+    """Persisted semaphore snapshot from the alert engine (Fase 1).
+
+    One row per poll per well; /api/wells/alerts serves the latest row
+    per owned well. `last_notified_severity` gates Slack fan-out so a
+    well only pings once per severity level reached.
+    """
+    __tablename__ = "well_alerts"
+
+    id = Column(Integer, primary_key=True)
+    well_id = Column(Integer, ForeignKey("wells.id"), nullable=False,
+                     index=True)
+    computed_at = Column(DateTime, nullable=False, default=_utcnow,
+                         index=True)
+    source = Column(String(16), nullable=False, default="manual")
+    severity = Column(String(8), nullable=False)   # green|yellow|orange|red
+    status = Column(String(16), nullable=False)    # stable|at_risk|metastable|loaded
+    message = Column(String(512), nullable=False)
+    margin_pct = Column(Float)
+    days_to_risk = Column(Integer)
+    v_actual_ft_s = Column(Float)
+    v_crit_ft_s = Column(Float)
+    q_crit_mscfd = Column(Float)
+    metastable_regime = Column(String(16))
+    q_min_stable_mscfd = Column(Float)
+    last_notified_severity = Column(String(8))

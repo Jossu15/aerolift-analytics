@@ -51,6 +51,8 @@ def delete_well(db: Session, well: models.Well) -> None:
         models.ScadaReading.well_id == well.id).delete()
     db.query(models.DeliverabilityTest).filter(
         models.DeliverabilityTest.well_id == well.id).delete()
+    db.query(models.WellAlert).filter(
+        models.WellAlert.well_id == well.id).delete()
     db.delete(well)
     db.commit()
 
@@ -103,3 +105,37 @@ def last_scada_reading(db: Session,
     return db.query(models.ScadaReading).filter(
         models.ScadaReading.well_id == well_id) \
         .order_by(models.ScadaReading.ts.desc()).first()
+
+
+# ---------------- Alert engine snapshots ----------------
+def latest_well_alert(db: Session,
+                      well_id: int) -> Optional[models.WellAlert]:
+    """Most recent persisted snapshot for one well (notification gate)."""
+    return db.query(models.WellAlert).filter(
+        models.WellAlert.well_id == well_id) \
+        .order_by(models.WellAlert.computed_at.desc(),
+                  models.WellAlert.id.desc()).first()
+
+
+def latest_alerts(db: Session, key, limit: int = 200):
+    """Latest snapshot per well among the key's owned wells.
+
+    Legacy wells (owner_key_id NULL) are visible to every key, matching
+    owns_well() semantics. Returns [(WellAlert, Well), ...] newest first.
+    """
+    from sqlalchemy import func
+    newest = (db.query(models.WellAlert.well_id,
+                       func.max(models.WellAlert.computed_at).label("ts"))
+              .group_by(models.WellAlert.well_id).subquery())
+    query = (
+        db.query(models.WellAlert, models.Well)
+        .join(models.Well, models.Well.id == models.WellAlert.well_id)
+        .join(newest, (models.WellAlert.well_id == newest.c.well_id)
+              & (models.WellAlert.computed_at == newest.c.ts))
+        .order_by(models.WellAlert.computed_at.desc(),
+                  models.WellAlert.id.desc()))
+    if key is not None:
+        query = query.filter(
+            (models.Well.owner_key_id.is_(None))
+            | (models.Well.owner_key_id == key.id))
+    return query.limit(limit).all()
