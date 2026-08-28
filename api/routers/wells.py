@@ -82,6 +82,59 @@ def list_wells(limit: int = 200, offset: int = 0,
                            owner_key_id=key.id)
 
 
+@router.get("/alerts", response_model=List[schemas.AlertOut])
+def list_alerts(limit: int = 200, offset: int = 0,
+                key: models.ApiKey = Depends(get_current_key),
+                db: Session = Depends(get_db)):
+    """Semaphore alerts for the operator's whole well portfolio.
+
+    Each well is evaluated at its nominal rate and mapped onto the
+    green/yellow/orange/red semaphore used by the dashboard:
+        loaded        -> red
+        metastable    -> orange
+        at_risk       -> yellow
+        stable        -> green
+    Wells without a nominal rate are skipped (can't evaluate).
+    """
+    wells = crud.list_wells(db, limit=limit, offset=offset,
+                            owner_key_id=key.id)
+    from api import engines as _engines
+
+    def _message(w, snap):
+        if snap["is_loading"]:
+            return "Cargado - colapsar sin intervencion"
+        if snap["metastable_regime"] == "metastable":
+            return "Estable solo en regimen metaestable (Dousi 2006)"
+        m = snap.get("margin_pct")
+        return "Estable" if (m is None or m >= 20.0) else \
+            "En riesgo - margen bajo"
+
+    alerts = []
+    for w in wells:
+        if not (w.q_gas_nominal_mscfd or 0) > 0:
+            continue
+        snap = _engines.loading_snapshot(w, float(w.q_gas_nominal_mscfd))
+        margin = snap.get("margin_pct")
+        if snap["is_loading"]:
+            status, color = "loaded", "red"
+        elif snap["metastable_regime"] == "metastable":
+            status, color = "metastable", "orange"
+        elif margin is not None and margin < 20.0:
+            status, color = "at_risk", "yellow"
+        else:
+            status, color = "stable", "green"
+        alerts.append(schemas.AlertOut(
+            well_id=w.id, tag=w.tag, severity=color, status=status,
+            message=_message(w, snap), margin_pct=margin,
+            days_to_risk=None,
+            v_actual_ft_s=snap.get("v_actual_ft_s"),
+            v_crit_ft_s=snap.get("v_crit_ft_s"),
+            q_crit_mscfd=snap.get("q_crit_mscfd"),
+            metastable_regime=snap.get("metastable_regime"),
+            q_min_stable_mscfd=snap.get("q_min_stable_mscfd")))
+    return alerts
+
+
 @router.get("/{well_id}", response_model=schemas.WellOut)
 def get_well(well_id: int, key: models.ApiKey = Depends(get_current_key),
              db: Session = Depends(get_db)):

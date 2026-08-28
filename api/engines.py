@@ -14,7 +14,12 @@ from typing import List, Optional, Tuple
 from sqlalchemy.orm import Session
 
 from math_engine.bhp_dry_gas import cullender_smith_bhp
-from math_engine.forecast import fit_material_balance, forecast_well_life
+from math_engine.forecast import (
+    fit_material_balance,
+    forecast_well_life,
+    pressure_at_cumulative,
+    pz_from_p,
+)
 from math_engine.ipr import absolute_open_flow, fit_rawlins_schellhardt
 from math_engine.liquid_loading import loading_assessment
 from math_engine.metastable import metastable_assessment
@@ -262,3 +267,36 @@ def forecast_from_history(db: Session, well, gp_list: List[float],
         "days_to_risk": days_to_risk,
         "history": history,
     }
+
+
+def forecast_view(db: Session, well, time_step_days=30,
+                  max_steps=60) -> dict:
+    """Dashboard forecast for a well without a manually-uploaded p/z history.
+
+    Builds an internally-consistent volumetric MB history from the well's
+    stored reservoir pressure and deliverability (mature-gas-well estimate:
+    OGIP ~ 10 years at 80% of the absolute open flow), then runs the exact
+    same physics loop as forecast_from_history. The estimate is returned
+    flagged as such so consumers can label it a preview.
+    """
+    t_res = float(well.t_res_f) + 460.0
+    gg = float(well.gamma_g)
+    p_res = float(well.p_res)
+    intercept = pz_from_p(p_res, t_res, gg)
+
+    spec = ipr_spec(db, well)
+    aof = q_ceiling(spec, p_res)
+    g_est = max(2000.0, aof * 0.8 * 3650.0 / 1000.0)
+    slope = -intercept / g_est
+
+    gp_hist = [0.0, 0.05 * g_est, 0.10 * g_est, 0.15 * g_est]
+    p_hist = [pressure_at_cumulative(g, intercept, slope, t_res, gg)
+              for g in gp_hist]
+
+    result = forecast_from_history(db, well, gp_hist, p_hist,
+                                   time_step_days=time_step_days,
+                                   max_steps=max_steps)
+    result["preview"] = True
+    result["note"] = ("OGIP estimado a partir de la deliverabilidad "
+                      "(sin historial p/z cargado) - vista de pronostico")
+    return result

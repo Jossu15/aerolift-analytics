@@ -1,14 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { getWells, getAllLoadingStatuses } from "@/lib/api";
-import type { LoadingResult, Well } from "@/lib/types";
+import { getAlerts } from "@/lib/api";
+import type { Alert } from "@/lib/types";
 import WellCard from "./WellCard";
 import AlertsPanel from "./AlertsPanel";
 
 export default function DashboardGrid() {
-  const [loadings, setLoadings] = useState<LoadingResult[]>([]);
-  const [wells, setWells] = useState<Well[]>([]);
+  const [alerts, setAlerts] = useState<Alert[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<string>("all");
@@ -16,12 +15,8 @@ export default function DashboardGrid() {
   useEffect(() => {
     async function load() {
       try {
-        const [wellsResp, loadingResults] = await Promise.all([
-          getWells(),
-          getAllLoadingStatuses(),
-        ]);
-        setWells(wellsResp.wells);
-        setLoadings(loadingResults);
+        const data = await getAlerts();
+        setAlerts(data);
       } catch (e: unknown) {
         setError(e instanceof Error ? e.message : "Error desconocido");
       } finally {
@@ -31,34 +26,17 @@ export default function DashboardGrid() {
     load();
   }, []);
 
-  const wellTagMap = new Map(wells.map((w) => [w.id, w.tag]));
-
-  const alerts = loadings.map((l) => ({
-    well_id: l.well_id,
-    tag: wellTagMap.get(l.well_id) || `#${l.well_id}`,
-    severity: l.severity,
-    status: l.status,
-    message:
-      l.status === "loaded"
-        ? `Cargado — margen ${l.margin_pct.toFixed(1)}%`
-        : l.status === "metastable"
-        ? `Metaestable — margen ${l.margin_pct.toFixed(1)}%`
-        : `En riesgo — margen ${l.margin_pct.toFixed(1)}%`,
-    margin_pct: l.margin_pct,
-    days_to_risk: null,
-  }));
-
   const filtered =
     filter === "all"
-      ? loadings
-      : loadings.filter((l) => l.status === filter);
+      ? alerts
+      : alerts.filter((a) => a.status === filter);
 
   const counts = {
-    all: loadings.length,
-    stable: loadings.filter((l) => l.status === "stable").length,
-    at_risk: loadings.filter((l) => l.status === "at_risk").length,
-    metastable: loadings.filter((l) => l.status === "metastable").length,
-    loaded: loadings.filter((l) => l.status === "loaded").length,
+    all: alerts.length,
+    stable: alerts.filter((a) => a.status === "stable").length,
+    at_risk: alerts.filter((a) => a.status === "at_risk").length,
+    metastable: alerts.filter((a) => a.status === "metastable").length,
+    loaded: alerts.filter((a) => a.status === "loaded").length,
   };
 
   if (loading) {
@@ -75,7 +53,7 @@ export default function DashboardGrid() {
         <p className="text-red-700 font-medium">Error al conectar con la API</p>
         <p className="text-red-500 text-sm mt-1">{error}</p>
         <p className="text-gray-400 text-xs mt-3">
-          Verifica que el backend este corriendo en localhost:8000
+          Verifica que el backend este corriendo en {process.env.NEXT_PUBLIC_API_URL || "localhost:8000"}
         </p>
       </div>
     );
@@ -112,11 +90,10 @@ export default function DashboardGrid() {
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-        {filtered.map((l) => (
+        {filtered.map((a) => (
           <WellCard
-            key={l.well_id}
-            loading={l}
-            tag={wellTagMap.get(l.well_id) || `#${l.well_id}`}
+            key={a.well_id}
+            alert={a}
           />
         ))}
       </div>

@@ -2,8 +2,9 @@ import type {
   Well,
   LoadingResult,
   ForecastResult,
-  WellsListResponse,
+  ChartsResult,
   ApiKeyInfo,
+  Alert,
 } from "./types";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
@@ -28,8 +29,8 @@ async function apiFetch<T>(
   return res.json();
 }
 
-export async function getWells(): Promise<WellsListResponse> {
-  return apiFetch<WellsListResponse>("/api/wells");
+export async function getWells(): Promise<Well[]> {
+  return apiFetch<Well[]>("/api/wells");
 }
 
 export async function getWell(id: number): Promise<Well> {
@@ -40,27 +41,22 @@ export async function getLoading(id: number): Promise<LoadingResult> {
   return apiFetch<LoadingResult>(`/api/wells/${id}/analysis/loading`);
 }
 
-export async function getForecast(
-  id: number,
-  months: number = 60
-): Promise<ForecastResult> {
-  return apiFetch<ForecastResult>(`/api/wells/${id}/analysis/forecast`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ forecast_months: months }),
-  });
+export async function getForecast(id: number): Promise<ForecastResult> {
+  return apiFetch<ForecastResult>(
+    `/api/wells/${id}/analysis/forecast-view`
+  );
+}
+
+export async function getCharts(id: number): Promise<ChartsResult> {
+  return apiFetch<ChartsResult>(
+    `/api/wells/${id}/analysis/charts`
+  );
+}
+
+export async function getAlerts(): Promise<Alert[]> {
+  return apiFetch<Alert[]>("/api/wells/alerts");
 }
 
 export async function getApiKeyInfo(): Promise<ApiKeyInfo> {
   return apiFetch<ApiKeyInfo>("/api/auth/me");
-}
-
-export async function getAllLoadingStatuses(): Promise<LoadingResult[]> {
-  const { wells } = await getWells();
-  const results = await Promise.allSettled(
-    wells.map((w) => getLoading(w.id))
-  );
-  return results
-    .filter((r): r is PromiseFulfilledResult<LoadingResult> => r.status === "fulfilled")
-    .map((r) => r.value);
 }

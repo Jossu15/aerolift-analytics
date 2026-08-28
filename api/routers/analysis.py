@@ -2,6 +2,7 @@
 forecast, calibration, economics, PDF report."""
 
 import datetime
+import json
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
@@ -14,6 +15,12 @@ from api.database import get_db
 from math_engine import economics as econ_engine
 from math_engine import oil_pvt
 from math_engine.artificial_lift import rod_pump_check, size_esp
+from math_engine.charts import (
+    plot_operating_envelope,
+    plot_vcrit_vs_pressure,
+    plot_vcrit_vs_temperature,
+    plot_vcrit_vs_diameter,
+)
 
 router = APIRouter(prefix="/api/wells/{well_id}/analysis", tags=["analysis"])
 
@@ -64,6 +71,20 @@ class TraverseOut(BaseModel):
     bb_flow_patterns: Optional[dict] = None
 
 
+class ChartFigure(BaseModel):
+    """Plotly figure serialized as JSON (data + layout keys)."""
+    data: list
+    layout: dict
+
+
+class ChartsOut(BaseModel):
+    well_id: int
+    operating_envelope: ChartFigure
+    vcrit_vs_pressure: ChartFigure
+    vcrit_vs_temperature: ChartFigure
+    vcrit_vs_diameter: ChartFigure
+
+
 class ForecastIn(BaseModel):
     gp_mmscf: List[float] = Field(min_length=2)
     p_psia: List[float] = Field(min_length=2)
@@ -86,6 +107,8 @@ class ForecastOut(BaseModel):
     mb_slope: float
     days_to_risk: Optional[int] = None
     history: List[ForecastRow]
+    preview: Optional[bool] = False
+    note: Optional[str] = None
 
 
 class CalibrationPoint(BaseModel):
@@ -184,6 +207,48 @@ def traverse(well_id: int, q_gas_mscfd: Optional[float] = None,
     return engines.pressure_traverse(well, q, n_segments=n_segments)
 
 
+@router.get("/charts", response_model=ChartsOut)
+def charts(well_id: int, q_gas_mscfd: Optional[float] = None,
+           key: models.ApiKey = Depends(get_current_key),
+           db: Session = Depends(get_db)):
+    """The four liquid-loading drill-down charts as Plotly figures.
+
+    Each figure serializes to ``{"data": [...], "layout": {...}}`` so
+    react-plotly.js can consume it directly.
+    """
+    well = _well_or_404(db, well_id, key)
+    q = q_gas_mscfd if q_gas_mscfd is not None else \
+        (well.q_gas_nominal_mscfd or 0.0)
+    if q <= 0:
+        raise HTTPException(422,
+                            "no gas rate available (pass ?q_gas_mscfd=)")
+    t_res_r = float(well.t_res_f) + 460.0
+    result, _spec = engines.natural_flow_point(db, well)
+    bhp_eval = result["Pwf_psia"] if result else \
+        float(well.p_wh if well.p_wh else 200.0)
+
+    def _fig(fig):
+        payload = json.loads(fig.to_json())
+        return ChartFigure(data=payload["data"], layout=payload["layout"])
+
+    return ChartsOut(
+        well_id=well.id,
+        operating_envelope=_fig(plot_operating_envelope(
+            float(well.p_res), t_res_r, float(well.gamma_g),
+            float(well.tubing_id_in), q_actual=q,
+            liquid_type="water", method=well.load_method)),
+        vcrit_vs_pressure=_fig(plot_vcrit_vs_pressure(
+            t_res_r, float(well.gamma_g), float(well.tubing_id_in),
+            "water", well.load_method)),
+        vcrit_vs_temperature=_fig(plot_vcrit_vs_temperature(
+            bhp_eval, float(well.gamma_g), float(well.tubing_id_in),
+            "water", well.load_method)),
+        vcrit_vs_diameter=_fig(plot_vcrit_vs_diameter(
+            bhp_eval, t_res_r, float(well.gamma_g),
+            "water", well.load_method)),
+    )
+
+
 @router.post("/forecast", response_model=ForecastOut)
 def forecast(well_id: int, payload: ForecastIn,
              key: models.ApiKey = Depends(require_tier("pro")),
@@ -205,6 +270,18 @@ def forecast(well_id: int, payload: ForecastIn,
     except ValueError as exc:
         raise HTTPException(422, "material balance fit failed: {}".format(exc))
     return ForecastOut(**result)
+
+
+@router.get("/forecast-view", response_model=ForecastOut)
+def forecast_view(well_id: int, max_steps: int = 60,
+                  key: models.ApiKey = Depends(require_tier("pro")),
+                  db: Session = Depends(get_db)):
+    """Dashboard preview declaration built from the well's own parameters
+    (no p/z history required). Same physics as POST /forecast."""
+    well = _well_or_404(db, well_id, key)
+    if not (30 <= max_steps <= 240):
+        raise HTTPException(422, "max_steps must be in [30, 240]")
+    return engines.forecast_view(db, well, max_steps=max_steps)
 
 
 @router.get("/calibration", response_model=CalibrationOut)

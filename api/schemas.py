@@ -123,6 +123,22 @@ class WellOut(WellBase):
     created_at: Optional[_dt.datetime] = None
 
 
+class AlertOut(BaseModel):
+    """Dashboard semaphore alert for a single well portfolio."""
+    well_id: int
+    tag: str
+    severity: str  # green | yellow | orange | red
+    status: str    # stable | at_risk | metastable | loaded
+    message: str
+    margin_pct: Optional[float] = None
+    days_to_risk: Optional[int] = None
+    v_actual_ft_s: Optional[float] = None
+    v_crit_ft_s: Optional[float] = None
+    q_crit_mscfd: Optional[float] = None
+    metastable_regime: Optional[str] = None
+    q_min_stable_mscfd: Optional[float] = None
+
+
 # ------------------------------------------------------------------
 # Deliverability test
 # ------------------------------------------------------------------

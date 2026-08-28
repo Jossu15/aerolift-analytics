@@ -159,6 +159,59 @@ class TestCalibrationEndpoint:
         assert body["n_points"] == 0 and body["note"]
 
 
+class TestChartsEndpoint:
+    def test_returns_four_plotly_figures(self, client, tested_well_id):
+        r = client.get("/api/wells/{}/analysis/charts".format(
+            tested_well_id))
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["well_id"] == tested_well_id
+        for key in ("operating_envelope", "vcrit_vs_pressure",
+                    "vcrit_vs_temperature", "vcrit_vs_diameter"):
+            fig = body[key]
+            assert "data" in fig and "layout" in fig
+            assert len(fig["data"]) >= 1
+            assert isinstance(fig["layout"], dict)
+
+    def test_operating_envelope_has_loading_zone_and_point(self, client,
+                                                           tested_well_id):
+        r = client.get("/api/wells/{}/analysis/charts".format(
+            tested_well_id))
+        body = r.json()
+        names = [t.get("name") for t in body["operating_envelope"]["data"]]
+        assert "Zona de carga" in names or "q_critica" in names
+        assert "Punto actual" in names
+
+    def test_zero_rate_422(self, client, well_id):
+        client.patch("/api/wells/{}".format(well_id),
+                     json={"q_gas_nominal_mscfd": 0.0})
+        r = client.get("/api/wells/{}/analysis/charts".format(well_id))
+        assert r.status_code == 422
+
+    def test_unknown_well_404(self, client):
+        assert client.get("/api/wells/999999/analysis/charts") \
+            .status_code == 404
+
+
+class TestForecastViewEndpoint:
+    def test_preview_forecast_without_history(self, client, tested_well_id):
+        r = client.get("/api/wells/{}/analysis/forecast-view".format(
+            tested_well_id))
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["preview"] is True
+        assert body["ogip_mmscf"] > 0
+        assert body["note"]
+        assert len(body["history"]) >= 2
+        first = body["history"][0]
+        assert {"day", "Gp", "Pr", "q_mscfd", "status"} <= set(first)
+
+    def test_max_steps_validation(self, client, tested_well_id):
+        r = client.get("/api/wells/{}/analysis/forecast-view".format(
+            tested_well_id), params={"max_steps": 10})
+        assert r.status_code == 422
+
+
 class TestEconomicsAndReport:
     MB = {"gp_mmscf": [0.0, 800.0, 1800.0, 2600.0],
           "p_psia": [4200.0, 3400.0, 2700.0, 2200.0]}

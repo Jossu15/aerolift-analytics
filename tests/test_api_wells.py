@@ -132,3 +132,22 @@ class TestCsvHistory:
                         content=b"",
                         headers={"Content-Type": "text/csv"})
         assert r.status_code == 422
+
+
+class TestAlerts:
+    def test_list_alerts_shape(self, client, tested_well_id):
+        r = client.get("/api/wells/alerts")
+        assert r.status_code == 200
+        body = r.json()
+        assert isinstance(body, list)
+        assert any(a["well_id"] == tested_well_id for a in body)
+
+    def test_alert_fields(self, client, tested_well_id):
+        r = client.get("/api/wells/alerts")
+        alert = next(a for a in r.json()
+                     if a["well_id"] == tested_well_id)
+        assert alert["severity"] in {"green", "yellow", "orange", "red"}
+        assert alert["status"] in {"stable", "at_risk", "metastable",
+                                   "loaded"}
+        assert alert["tag"] and alert["message"]
+        assert "margin_pct" in alert and "days_to_risk" in alert

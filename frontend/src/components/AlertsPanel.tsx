@@ -53,10 +53,12 @@ export default function AlertsPanel({ alerts }: AlertsPanelProps) {
               <p className="text-xs text-gray-600 mt-0.5">{alert.message}</p>
             </div>
             <div className="text-right shrink-0 ml-3">
-              <span className="text-xs font-mono text-gray-500">
-                {alert.margin_pct >= 0 ? "+" : ""}
-                {alert.margin_pct.toFixed(1)}%
-              </span>
+              {alert.margin_pct !== null && (
+                <span className="text-xs font-mono text-gray-500">
+                  {alert.margin_pct >= 0 ? "+" : ""}
+                  {alert.margin_pct.toFixed(1)}%
+                </span>
+              )}
               {alert.days_to_risk !== null && (
                 <p className="text-xs text-gray-400">
                   ~{Math.round(alert.days_to_risk)}d a critico
