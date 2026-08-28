@@ -160,3 +160,33 @@ def summary(budget_usd: Optional[float] = None,
         result = _budget_result(reports, float(budget_usd), True)
         body["budget"] = _budget_schema(result)
     return schemas.PortfolioSummaryOut(**body)
+
+
+@router.get("/report.pdf")
+def report_pdf(budget_usd: Optional[float] = None,
+               gas_price_usd_mcf: float = DEFAULT_GAS_PRICE,
+               max_steps: int = DEFAULT_MAX_STEPS,
+               key: models.ApiKey = Depends(require_tier("pro")),
+               db: Session = Depends(get_db)):
+    """One-page executive PDF: field KPIs + ranking + optimized package."""
+    import datetime
+
+    from math_engine.reporting import (build_report,
+                                       portfolio_report_sections)
+    reports = _portfolio_reports(db, key, gas_price_usd_mcf, max_steps)
+    summ = portfolio_engine.portfolio_summary(reports)
+    budget = None
+    if budget_usd and budget_usd > 0:
+        budget = _budget_result(reports, float(budget_usd), True)
+    sections = portfolio_report_sections(summ, reports, budget)
+    pdf_bytes = build_report(
+        "AeroLift Analytics - Reporte de portafolio",
+        "Operador {} | generado {}".format(
+            key.label, datetime.date.today().isoformat()),
+        sections,
+        footer_note="{} pozos | {} en riesgo".format(
+            summ["wells_total"], summ["wells_at_risk"]))
+    return Response(
+        content=pdf_bytes, media_type="application/pdf",
+        headers={"Content-Disposition":
+                 'inline; filename="aerolift_portfolio.pdf"'})

@@ -92,3 +92,23 @@ class TestSummary:
 
     def test_summary_requires_pro(self, basic_client):
         assert basic_client.get("/api/portfolio/summary").status_code == 403
+
+
+class TestReportPdf:
+    def test_report_pdf_is_a_pdf(self, client, pf_well):
+        r = client.get("/api/portfolio/report.pdf")
+        assert r.status_code == 200, r.text
+        assert r.headers["content-type"] == "application/pdf"
+        assert r.content[:5] == b"%PDF-"
+        assert len(r.content) > 1000
+
+    def test_report_pdf_accepts_budget(self, client, pf_well):
+        r = client.get("/api/portfolio/report.pdf",
+                       params={"budget_usd": 300000.0,
+                               "max_steps": 120})
+        assert r.status_code == 200
+        assert r.content[:5] == b"%PDF-"
+
+    def test_report_pdf_requires_pro(self, basic_client):
+        assert (basic_client.get("/api/portfolio/report.pdf").status_code
+                == 403)

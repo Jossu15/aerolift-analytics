@@ -90,3 +90,84 @@ def build_report(title: str, subtitle: str,
     c.showPage()
     c.save()
     return buf.getvalue()
+
+
+def portfolio_report_sections(summary: dict, rows: list,
+                              budget: dict = None) -> list:
+    """Sections for the executive portfolio PDF.
+
+    :param summary: portfolio_summary() dict.
+    :param rows: ranked reports (only best-option flats are used).
+    :param budget: optimize_budget() dict or None.
+    Names are padded to a fixed width so the one-page canvas renders
+    readable fixed-with columns out of the box.
+    """
+    def _usd(x):
+        if x is None:
+            return "-"
+        return "{:,.0f}".format(float(x))
+
+    def _num(x, d=0):
+        if x is None:
+            return "-"
+        return "{:,.{}f}".format(float(x), d)
+
+    sections = []
+    sections.append((
+        "Resumen de campo",
+        [
+            "Pozos: {}   En riesgo: {}   Accionables: {}".format(
+                summary["wells_total"], summary["wells_at_risk"],
+                summary["wells_actionable"]),
+            "Gas en riesgo: {:.0f} Mscf/D   Gas recuperable: {:.0f} "
+            "Mscf/D".format(summary["gas_at_risk_mscfd"],
+                            summary["gas_actionable_mscfd"]),
+            "NPV positivo: $ {}   Costo: $ {}   DeltaGas: {} MMscf".
+            format(_usd(summary["positive_npv_usd"]),
+                   _usd(summary["positive_cost_usd"]),
+                   _num(summary["positive_incremental_gas_mmscf"], 1)),
+            "ROI medio: {} %   Payback medio: {} meses".format(
+                _num(summary["positive_roi_mean_pct"]),
+                _num(summary["positive_payback_mean_months"])),
+        ]))
+
+    lines = []
+    positives = 0
+    for r in rows:
+        flat = r["best_option"] or {}
+        name = str(flat.get("tag") or r.get("tag") or "-")[:15].ljust(15)
+        action = str(flat.get("intervention") or "sin-opcion")[:14].ljust(14)
+        npv = _usd(flat.get("npv_usd"))
+        roi = _num(flat.get("roi_pct"))
+        pay = _num(flat.get("payback_months"))
+        gas = _num(flat.get("incremental_gas_mmscf"), 1)
+        cost = _usd(flat.get("cost_usd"))
+        lines.append("{} {} NPV $ {} | ROI {} % | payback {}m | "
+                     "dGas {} MMscf | costo $ {}".format(
+                         name, action, npv, roi, pay, gas, cost))
+        if flat.get("npv_usd"):
+            positives += 1
+    sections.append(("Ranking por pozo ({} con NPV)".format(positives),
+                     lines))
+
+    if budget:
+        selections = []
+        for o in budget["chosen"]:
+            name = str(o.get("tag") or o.get("well_id") or "-")[:15].ljust(15)
+            selections.append(
+                "{} {}  NPV $ {}  costo $ {}".format(
+                    name, str(o["intervention"])[:14].ljust(14),
+                    _usd(o["npv_usd"]), _usd(o["cost_usd"])))
+        sections.append((
+            "Paquete optimo (presupuesto $ {})".format(
+                _usd(budget["budget_usd"])),
+            selections + [
+                "Total: $ {} de $ {} ({} % uso) | NPV $ {} | "
+                "{} pozos".format(
+                    _usd(budget["total_cost_usd"]),
+                    _usd(budget["budget_usd"]),
+                    _num(budget["utilization_pct"], 1),
+                    _usd(budget["total_npv_usd"]),
+                    budget["wells_selected"]),
+            ]))
+    return sections
