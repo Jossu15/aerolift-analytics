@@ -60,14 +60,14 @@ Cada pozo tiene su "gemelo" con predicciones que mejoran con el tiempo y trazabi
 **Objetivo:** pasar de "este pozo está cargado" a "así es como debes gastar tu presupuesto de intervención este año".
 
 ### Qué se construye
-- **Batch runner a escala**: correr Fase 1+2 sobre todo el campo en paralelo (aquí sí se necesita Celery/RQ en serio — cientos de pozos, no docenas).
+- **Batch runner a escala**: correr Fase 1+2 sobre todo el campo en paralelo (aquí sí se necesita Celery/RQ en serio — cientos de pozos, no docenas). *(✓ rollout: `api/portfolio_batch.py` — executor de hilos con runs persistidos `PortfolioRun`/`PortfolioRunItem`, endpoints `/runs*` con 202 + polling; lógica compartida en `api/portfolio_eval.py`; migración `c5efab83421b`; swap a Celery/RQ+Redis queda como upgrade cuando el campo supere a los workers)*
 - **Ranking de intervención**: usar `economics.py` (velocity string, compresión) + `recommendations.py` (escalera de mitigación) para generar, por cada pozo cargado o en riesgo, el NPV/ROI/payback de cada intervención posible, y ordenar todo el portafolio por mejor retorno. *(✓ 3.1 `math_engine/portfolio.py` + ✓ 3.3 `GET /api/portfolio/ranking`)*
 - **Simulador de presupuesto**: el usuario mete "tengo $500K este trimestre" y el sistema arma el paquete óptimo de intervenciones (mochila/knapsack sobre el ranking anterior). *(✓ 3.2 `math_engine/budget.py` + ✓ 3.3 `POST /api/portfolio/budget`, knapsack 0/1 en cents con backtracking por bitsets)*
 - **Dashboard ejecutivo**: vista de gerencia — Mscf/D en riesgo, $ en riesgo, $ recuperable con el presupuesto propuesto, curva de producción del campo con/sin intervención. *(✓ 3.4 página `/portfolio` con KPIs, ranking por NPV y simulador)*
 - **Exportables**: PDF de portafolio (ya tienes `reporting.py`) para llevar a comité. *(✓ 3.5 `GET /api/portfolio/report.pdf` con resumen + ranking + paquete óptimo)*
 
 ### Se apoya en (ya existe)
-`economics.py`, `recommendations.py`, `bulk_loader.py`, `reporting.py`. Fase 3 cerrada en `1b071bc`: `338 tests passing`.
+`economics.py`, `recommendations.py`, `bulk_loader.py`, `reporting.py`. Fase 3 cerrada en `1b071bc` (338 tests) + rollout batch runner en `758145a` (342 tests).
 
 ### Entregable de fase
 Producto que se vende no al ingeniero sino al gerente de producción/activo — ticket de venta más alto, ciclo de decisión distinto.
@@ -148,3 +148,15 @@ Producto que se vende no al ingeniero sino al gerente de producción/activo — 
   - 3.5 — `GET /api/portfolio/report.pdf` (resumen + ranking + paquete
     óptimo) vía `reporting.portfolio_report_sections`; test suite completa
     **338 passed**.
+  - 3.6 — migración `c5efab83421b`: `portfolio_runs` +
+    `portfolio_run_items` (denormaliza el best-option por pozo).
+  - 3.7 — `api/portfolio_eval.py` (lógica compartida) +
+    `api/portfolio_batch.py` (executor de hilos, runs `queued→running→
+    done|failed`, `_prune` ≤ 200/key); endpoints `POST /runs` (202),
+    `GET /runs`, `GET /runs/{id}` con aislamiento por key.
+  - 3.8 — frontend `/portfolio` lee el último run done (fallback síncrono)
+    + barra "Recalcular en batch" con polling cada 2 s (tsc/eslint/build
+    limpios).
+  - 3.9 — suite completa **342 passed**; smoke WSL con stack rebuildado
+    verde; docs CONTEXT/roadmap actualizados (10 migraciones, head
+    `c5efab83421b`).

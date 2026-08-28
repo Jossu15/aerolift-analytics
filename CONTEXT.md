@@ -2,7 +2,7 @@
 
 **Platform:** Gas & oil well optimization engine with physics-first models, ML corrections, and economic evaluation.
 **Primary Source:** *Gas Reservoir Engineering* by Lee & Wattenbarger (SPE Textbook Vol. 5).
-**Status:** 338 tests passing, Docker stack running (Postgres + FastAPI + Next.js + Streamlit). Fase 2 (Digital Twin) completa: regeneración física por pozo, ensemble Barnea, UI de confianza. Fase 3 (Portfolio Optimizer) completa: ranking de intervención, knapsack de presupuesto, dashboard ejecutivo y reporte PDF.
+**Status:** 342 tests passing, Docker stack running (Postgres + FastAPI + Next.js + Streamlit). Fase 2 (Digital Twin) completa: regeneración física por pozo, ensemble Barnea, UI de confianza. Fase 3 (Portfolio Optimizer) completa: ranking de intervención, knapsack de presupuesto, dashboard ejecutivo, reporte PDF y batch runner en background.
 
 ---
 
@@ -462,6 +462,9 @@ Structure: title → (heading, [lines]) sections → footer with citation.
 | POST | `/api/portfolio/budget` | pro | Knapsack 0/1 sobre el ranking bajo un capex tope |
 | GET | `/api/portfolio/summary` | pro | KPIs de campo + (opcional) paquete óptimo para un presupuesto |
 | GET | `/api/portfolio/report.pdf` | pro | PDF ejecutivo: resumen + ranking + paquete óptimo |
+| POST | `/api/portfolio/runs` | pro | Encola evaluación batch del campo completo (202 + run_id) |
+| GET | `/api/portfolio/runs` | pro | Runs recientes del key, newest first |
+| GET | `/api/portfolio/runs/{id}` | pro | Run completo: status, summary, items |
 
 ### Oil Well Endpoints
 | Method | Path | Description |
@@ -513,9 +516,9 @@ dashboard → Streamlit → http://localhost:8501
 API key-based (`X-API-Key` header). Tiers: basic (reading), pro (full analytics).
 
 ### Alembic Migrations
-9 versiones: schema creation, friction_multiplier, calibration, SCADA,
-oil wells, well_alerts, alert_margin_pct, twin_models_versioned (head
-`b3c9d1e5f6a7`).
+10 versiones: schema creation, friction_multiplier, calibration, SCADA,
+oil wells, well_alerts, alert_margin_pct, twin_models_versioned,
+portfolio_runs (head `c5efab83421b`).
 
 ---
 
@@ -594,6 +597,22 @@ y `models` (aditivos, null si el método clásico no aplica).
   `utilization_pct`, `wells_selected`, `total_incremental_gas_mmscf`.
   Score = NPV; me ata con `one_per_well` (compara NPV entre opciones del
   mismo well) y desempata por menor costo.
+
+### Batch runner (rollout Fase 3)
+- `api/portfolio_eval.py` — lógica compartida entre endpoints síncronos y
+  el runner: `build_rows` (semáforo `at_risk` + preview p/z por pozo),
+  `portfolio_reports` (todas las wells del key, rankeadas),
+  `summary_of`, `rank_row_schema`/`flat_to_item` (forma portable → columnas
+  de `PortfolioRunItem`).
+- `api/portfolio_batch.py` — `ThreadPoolExecutor(max_workers=2)` que
+  ejecuta runs en background con su propia `SessionLocal()`. Un run pasa
+  por `queued → running → done | failed` y persiste summary + items
+  (`PortfolioRun`, `PortfolioRunItem`, migración `c5efab83421b`).
+  `submit_portfolio_run` encola y devuelve el id; `current_status`/
+  `wait_for_run` para polling (tests/scripts). `_prune` mantiene ≤ 200
+  runs por key. El frontend `/portfolio` muestra el último run y su barra
+  "Recalcular en batch" con polling cada 2 s (cae a evaluación síncrona
+  si no hay runs).
 
 ---
 
