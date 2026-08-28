@@ -2,7 +2,7 @@
 
 **Platform:** Gas & oil well optimization engine with physics-first models, ML corrections, and economic evaluation.
 **Primary Source:** *Gas Reservoir Engineering* by Lee & Wattenbarger (SPE Textbook Vol. 5).
-**Status:** 312 tests passing, Docker stack running (Postgres + FastAPI + Next.js + Streamlit). Fase 2 (Digital Twin) completa: regeneración física por pozo, ensemble Barnea, UI de confianza.
+**Status:** 338 tests passing, Docker stack running (Postgres + FastAPI + Next.js + Streamlit). Fase 2 (Digital Twin) completa: regeneración física por pozo, ensemble Barnea, UI de confianza. Fase 3 (Portfolio Optimizer) completa: ranking de intervención, knapsack de presupuesto, dashboard ejecutivo y reporte PDF.
 
 ---
 
@@ -455,6 +455,14 @@ Structure: title → (heading, [lines]) sections → footer with citation.
 | GET | `/api/wells/alerts` | basic | Semáforo del portafolio (último snapshot o evaluación on-the-fly) |
 | POST | `/api/wells/alerts/recompute` | pro | Recalcular y persistir snapshot ahora (+ notifica escalamientos) |
 
+### Portfolio (Fase 3)
+| Method | Path | Tier | Description |
+|---|---|---|---|
+| GET | `/api/portfolio/ranking` | pro | Mejor intervención por pozo, ordenado por NPV desc |
+| POST | `/api/portfolio/budget` | pro | Knapsack 0/1 sobre el ranking bajo un capex tope |
+| GET | `/api/portfolio/summary` | pro | KPIs de campo + (opcional) paquete óptimo para un presupuesto |
+| GET | `/api/portfolio/report.pdf` | pro | PDF ejecutivo: resumen + ranking + paquete óptimo |
+
 ### Oil Well Endpoints
 | Method | Path | Description |
 |---|---|---|
@@ -553,6 +561,39 @@ artefactos joblib del twin (`ml_service.delete_artifact`), evitando
 residuos huérfanos en Postgres/disco y floats id de autoincrement.
 `LoadingOut` y `loading_snapshot` exponen `method`, `mechanism`, `regime`
 y `models` (aditivos, null si el método clásico no aplica).
+
+---
+
+## 23. Portfolio Optimizer (Fase 3)
+
+### `math_engine/portfolio.py`
+- `well_intervention_options(params, gp_list, p_list, well_id, tag, gas_price,
+  costs_usd, targets, time_step_days, max_steps)` → opciones de
+  intervención por pozo con NPV/ROI/payback/Δgas incremental y
+  `life_extension_days`; opciones ordenadas por mejor NPV. Cada opción se
+  evalúa con `economics.evaluate_intervention` sobre un historial p/z
+  preview (deciline volumétrico).
+- `rank_portfolio(rows, gas_price_usd_mcf, max_steps)` → reports ordenados
+  por mejor NPV (mejor `None` → `-inf`); `portable_best(report)` aplana el
+  `best_option` para transporte.
+- `portfolio_summary(reports)` → KPIs: `wells_total/at_risk`,
+  `gas_at_risk_mscfd`, `wells_actionable`, `gas_actionable_mscfd`,
+  `wells_positive_npv`, `positive_npv_usd/cost_usd`,
+  `positive_incremental_gas_mmscf`, `positive_roi_mean_pct`,
+  `positive_payback_mean_months`.
+- Intervenciones modeladas: `velocity_string` (costo $85,000, requiere
+  `target_tubing_id_in`) y `compression` ($120,000, requiere
+  `target_p_wh_psia`). Targets por defecto: velocity string → mayor ID
+  estándar menor que el actual; compression → p_wh × 0.5 (mínimo 50 psia).
+  Gas default $3.5/Mscf.
+
+### `math_engine/budget.py`
+- `optimize_budget(offers, budget_usd, one_per_well=True,
+  dp_state_limit=1000000)` → knapsack 0/1 (DP en cents enteros, backtracking
+  por bitsets). Devuelve `chosen`, `total_cost_usd`, `total_npv_usd`,
+  `utilization_pct`, `wells_selected`, `total_incremental_gas_mmscf`.
+  Score = NPV; me ata con `one_per_well` (compara NPV entre opciones del
+  mismo well) y desempata por menor costo.
 
 ---
 

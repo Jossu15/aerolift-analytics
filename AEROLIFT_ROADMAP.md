@@ -61,13 +61,13 @@ Cada pozo tiene su "gemelo" con predicciones que mejoran con el tiempo y trazabi
 
 ### Qué se construye
 - **Batch runner a escala**: correr Fase 1+2 sobre todo el campo en paralelo (aquí sí se necesita Celery/RQ en serio — cientos de pozos, no docenas).
-- **Ranking de intervención**: usar `economics.py` (velocity string, compresión) + `recommendations.py` (escalera de mitigación) para generar, por cada pozo cargado o en riesgo, el NPV/ROI/payback de cada intervención posible, y ordenar todo el portafolio por mejor retorno.
-- **Simulador de presupuesto**: el usuario mete "tengo $500K este trimestre" y el sistema arma el paquete óptimo de intervenciones (mochila/knapsack sobre el ranking anterior).
-- **Dashboard ejecutivo**: vista de gerencia — Mscf/D en riesgo, $ en riesgo, $ recuperable con el presupuesto propuesto, curva de producción del campo con/sin intervención.
-- **Exportables**: PDF de portafolio (ya tienes `reporting.py`) para llevar a comité.
+- **Ranking de intervención**: usar `economics.py` (velocity string, compresión) + `recommendations.py` (escalera de mitigación) para generar, por cada pozo cargado o en riesgo, el NPV/ROI/payback de cada intervención posible, y ordenar todo el portafolio por mejor retorno. *(✓ 3.1 `math_engine/portfolio.py` + ✓ 3.3 `GET /api/portfolio/ranking`)*
+- **Simulador de presupuesto**: el usuario mete "tengo $500K este trimestre" y el sistema arma el paquete óptimo de intervenciones (mochila/knapsack sobre el ranking anterior). *(✓ 3.2 `math_engine/budget.py` + ✓ 3.3 `POST /api/portfolio/budget`, knapsack 0/1 en cents con backtracking por bitsets)*
+- **Dashboard ejecutivo**: vista de gerencia — Mscf/D en riesgo, $ en riesgo, $ recuperable con el presupuesto propuesto, curva de producción del campo con/sin intervención. *(✓ 3.4 página `/portfolio` con KPIs, ranking por NPV y simulador)*
+- **Exportables**: PDF de portafolio (ya tienes `reporting.py`) para llevar a comité. *(✓ 3.5 `GET /api/portfolio/report.pdf` con resumen + ranking + paquete óptimo)*
 
 ### Se apoya en (ya existe)
-`economics.py`, `recommendations.py`, `bulk_loader.py`, `reporting.py`.
+`economics.py`, `recommendations.py`, `bulk_loader.py`, `reporting.py`. Fase 3 cerrada en `1b071bc`: `338 tests passing`.
 
 ### Entregable de fase
 Producto que se vende no al ingeniero sino al gerente de producción/activo — ticket de venta más alto, ciclo de decisión distinto.
@@ -128,6 +128,23 @@ Producto que se vende no al ingeniero sino al gerente de producción/activo — 
   - 2.7 — pestaña "Digital Twin" en el frontend (tsc + eslint limpios).
   - 312 tests backend verdes; smoke WSL con stack completo verde.
   - Commit `c4b82ea`.
-- [ ] **Fase 3 — Portfolio Optimizer** (endpoints `/api/portfolio/*`,
+- [x] **Fase 3 — Portfolio Optimizer** (endpoints `/api/portfolio/*`,
   ranking NPV/ROI/payback, knapsack de presupuesto, dashboard ejecutivo,
   reporte PDF).
+  - 3.1 — `math_engine/portfolio.py`: `well_intervention_options` (VLP
+    demográfica de Pwh a condiciones de superficie, metaestable), portafolio
+    rankeado por mejor NPV con `(-inf)` para pozos sin opción viable y
+    `portfolio_summary` con KPIs de campo (gas/ROI/payback/Δgas).
+  - 3.2 — `math_engine/budget.py`: knapsack 0/1 en cents con backtracking
+    por bitsets y `total_incremental_gas_mmscf`.
+  - 3.3 — `api/routers/portfolio.py`: `GET /ranking`, `POST /budget`,
+    `GET /summary` (con `budget_usd` opcional), helpers
+    `_portfolio_reports` (todos los pozos del key, `at_risk` vía semáforo,
+    saltando tasa nominal ≤ 0) y `preview_decline_history` extraído de
+    `forecast_view`.
+  - 3.4 — Frontend `/portfolio`: KPIs (pozos/en riesgo/gas en riesgo/NPV
+    positivo), tabla ranking por NPV, simulador de presupuesto; tsc +
+    eslint limpios.
+  - 3.5 — `GET /api/portfolio/report.pdf` (resumen + ranking + paquete
+    óptimo) vía `reporting.portfolio_report_sections`; test suite completa
+    **338 passed**.
