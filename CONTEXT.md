@@ -503,7 +503,18 @@ Structure: title → (heading, [lines]) sections → footer with citation.
 db        → PostgreSQL 15 (persistent volume pgdata)
 api       → FastAPI + Alembic migrations → http://localhost:8000/docs
 dashboard → Streamlit → http://localhost:8501
+frontend  → Next.js → http://localhost:3000
 ```
+
+### Alcance desde el navegador de Windows (WSL2)
+- El engine Docker corre **dentro de la distro Ubuntu** de WSL; los puertos
+  publicados se ligan a `0.0.0.0` en la VM y Windows los alcanza por la IP
+  de la VM (`wsl hostname -I`). El relay `localhost` de WSL (`wslrelay`)
+  enlaza/desenlaza `127.0.0.1:*` de forma intermitente → a veces el
+  navegador da `ERR_CONNECTION_REFUSED` aunque los contenedores estén sanos.
+- Fix determinístico: `scripts/portproxy-win.ps1` (ejecutar elevado, pide
+  UAC). Crea reglas `netsh interface portproxy` de `127.0.0.1:3000/8000/8501`
+  → IP de la VM, independientes del relay. Reejecutar si vuelve a fallar.
 
 ### Database Models (`api/models.py`)
 - `Well` — completion params, type (gas/oil), IPR coefficients,
