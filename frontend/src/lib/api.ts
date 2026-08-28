@@ -11,6 +11,8 @@ import type {
   PortfolioRankRow,
   PortfolioSummary,
   BudgetPlan,
+  PortfolioRun,
+  PortfolioRunDetail,
 } from "./types";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
@@ -118,4 +120,26 @@ export async function planBudget(
       max_steps: maxSteps,
     }),
   });
+}
+
+export async function startPortfolioRun(
+  gasPrice?: number,
+  maxSteps: number = 120
+): Promise<PortfolioRun> {
+  return apiFetch<PortfolioRun>("/api/portfolio/runs", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      gas_price_usd_mcf: gasPrice,
+      max_steps: maxSteps,
+    }),
+  });
+}
+
+export async function getPortfolioRuns(limit: number = 5): Promise<PortfolioRun[]> {
+  return apiFetch<PortfolioRun[]>(`/api/portfolio/runs?limit=${limit}`);
+}
+
+export async function getPortfolioRun(id: number): Promise<PortfolioRunDetail> {
+  return apiFetch<PortfolioRunDetail>(`/api/portfolio/runs/${id}`);
 }

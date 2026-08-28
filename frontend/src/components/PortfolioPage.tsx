@@ -5,12 +5,16 @@ import Link from "next/link";
 import {
   getPortfolioRanking,
   getPortfolioSummary,
+  getPortfolioRun,
+  getPortfolioRuns,
   planBudget,
+  startPortfolioRun,
 } from "@/lib/api";
 import type {
   PortfolioRankRow,
   PortfolioSummary,
   BudgetPlan,
+  PortfolioRunDetail,
 } from "@/lib/types";
 
 const fmtUsd = (v: number | null | undefined) =>
@@ -257,15 +261,29 @@ export default function PortfolioPage() {
   const [planning, setPlanning] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [lastRun, setLastRun] = useState<PortfolioRunDetail | null>(null);
+  const [running, setRunning] = useState(false);
 
   const load = useCallback(async () => {
     try {
-      const [r, s] = await Promise.all([
-        getPortfolioRanking(),
-        getPortfolioSummary(),
-      ]);
-      setRows(r);
-      setSummary(s);
+      const runs = await getPortfolioRuns(3);
+      const done = runs.find((r) => r.status === "done") || null;
+      if (done) {
+        const detail = await getPortfolioRun(done.id);
+        setRows(detail.items);
+        setSummary({
+          ...(detail.summary as PortfolioSummary),
+          budget: null,
+        });
+        setLastRun(detail);
+      } else {
+        const [r, s] = await Promise.all([
+          getPortfolioRanking(),
+          getPortfolioSummary(),
+        ]);
+        setRows(r);
+        setSummary(s);
+      }
       setError(null);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Error desconocido");
@@ -278,6 +296,36 @@ export default function PortfolioPage() {
     const t = setTimeout(load, 0);
     return () => clearTimeout(t);
   }, [load]);
+
+  const handleBatch = useCallback(async () => {
+    setRunning(true);
+    setError(null);
+    try {
+      const run = await startPortfolioRun(3.5, 120);
+      let current = await getPortfolioRun(run.id);
+      while (current.status === "queued" || current.status === "running") {
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+        current = await getPortfolioRun(run.id);
+      }
+      if (current.status === "failed") {
+        setError(
+          `El run ${run.id} falló: ${current.error || "error desconocido"}`
+        );
+      } else {
+        setRows(current.items);
+        setSummary({
+          ...(current.summary as PortfolioSummary),
+          budget: null,
+        });
+        setLastRun(current);
+        setPlan(null);
+      }
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Error desconocido");
+    } finally {
+      setRunning(false);
+    }
+  }, []);
 
   const handlePlan = useCallback(
     async (budget: number, gas: number) => {
@@ -356,6 +404,40 @@ export default function PortfolioPage() {
         </div>
       ) : (
         <>
+          <div className="rounded-xl border border-gray-200 bg-white px-5 py-3 shadow-sm mb-6 flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-3 text-xs">
+              <span className="text-gray-500">Evaluación batch:</span>
+              {running ? (
+                <span className="inline-flex items-center gap-2 text-blue-600 font-medium">
+                  <span className="inline-block w-3 h-3 rounded-full border-2 border-blue-600 border-t-transparent animate-spin" />
+                  Calculando sobre todo el campo...
+                </span>
+              ) : lastRun ? (
+                <span className="text-gray-600">
+                  #{lastRun.id} ·{" "}
+                  {lastRun.finished_at
+                    ? new Date(lastRun.finished_at).toLocaleTimeString()
+                    : "—"}{" "}
+                  · {lastRun.wells_total} pozos,{" "}
+                  {lastRun.wells_actionable} accionables · gas $
+                  {lastRun.gas_price_usd_mcf}/Mscf · max {lastRun.max_steps}
+                  pasos
+                </span>
+              ) : (
+                <span className="text-gray-400">
+                  Aún no hay runs; mostrando evaluación síncrona
+                </span>
+              )}
+            </div>
+            <button
+              onClick={handleBatch}
+              disabled={running}
+              className="px-4 py-1.5 rounded-lg text-sm font-medium bg-gray-900 text-white hover:bg-gray-700 transition disabled:opacity-50"
+            >
+              {running ? "En cola..." : "Recalcular en batch"}
+            </button>
+          </div>
+
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
             {kpis.map((k) => (
               <KpiCard key={k.label} {...k} />

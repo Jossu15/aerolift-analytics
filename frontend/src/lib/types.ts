@@ -170,3 +170,20 @@ export interface PortfolioSummary {
   positive_payback_mean_months: number | null;
   budget: BudgetPlan | null;
 }
+
+export interface PortfolioRun {
+  id: number;
+  status: string; // queued | running | done | failed
+  gas_price_usd_mcf: number;
+  max_steps: number;
+  wells_total: number;
+  wells_actionable: number;
+  created_at: string | null;
+  finished_at: string | null;
+  error: string | null;
+}
+
+export interface PortfolioRunDetail extends PortfolioRun {
+  summary: Partial<PortfolioSummary> | null;
+  items: PortfolioRankRow[];
+}
