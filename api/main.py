@@ -21,23 +21,29 @@ from fastapi import FastAPI
 from api import __version__
 from api.database import init_db
 from api.routers import analysis, auth, bulk, ml, scada, wells
-from api.scheduler import scheduler_enabled
+from api.scheduler import scheduler_enabled, twin_calibration_enabled
 
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     init_db()
-    alert_task = None
+    background = []
     if scheduler_enabled():
         from api.scheduler import alert_loop
         stop = asyncio.Event()
         alert_task = asyncio.create_task(alert_loop(stop))
+        background.append((stop, alert_task))
+    if twin_calibration_enabled():
+        from api.scheduler import twin_calibration_loop
+        stop = asyncio.Event()
+        calib_task = asyncio.create_task(twin_calibration_loop(stop))
+        background.append((stop, calib_task))
     yield
-    if alert_task is not None:
+    for stop, task in background:
         stop.set()
-        alert_task.cancel()
+        task.cancel()
         try:
-            await alert_task
+            await task
         except asyncio.CancelledError:
             pass
 

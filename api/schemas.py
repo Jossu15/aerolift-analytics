@@ -7,7 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, \
     model_validator
 
 VLP_MODELS = ("beggs_brill", "dry_rk2", "avg_tz")
-LOAD_METHODS = ("turner", "coleman")
+LOAD_METHODS = ("turner", "coleman", "barnea")
 WELL_TYPES = ("gas", "oil")
 
 

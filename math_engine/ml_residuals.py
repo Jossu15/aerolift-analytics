@@ -78,7 +78,8 @@ def train_model(x_mat: List[List[float]], y_vec: List[float],
     r2 = 1.0 - float(numpy.sum((y_arr - pred) ** 2)) / ss_tot \
         if ss_tot > 0 else 1.0
     return forest, {"mae_psi": round(mae, 3), "r2": round(r2, 4),
-                    "residual_mean_psi": round(float(y_arr.mean()), 3)}
+                    "residual_mean_psi": round(float(y_arr.mean()), 3),
+                    "residual_std_psi": round(float(y_arr.std()), 3)}
 
 
 def save_model(well_id: int, model, metrics: Dict, n_points: int,
@@ -111,12 +112,15 @@ def load_model(well_id: int, path: Optional[str] = None) -> Optional[Dict]:
 def predict_corrected(payload: Dict, physics_pwf: float,
                       q_gas_mscfd: float, q_water_bpd: float = 0.0,
                       day: float = 0.0) -> Dict:
-    """physics + learned residual, with the correction exposed."""
+    """physics + learned residual, with the correction and its ±1σ band."""
     x_row = [[float(q_gas_mscfd), float(q_water_bpd or 0.0),
               float(day or 0.0)]]
     correction = float(payload["model"].predict(x_row)[0])
+    metrics = payload.get("metrics") or {}
+    band_psi = float(metrics.get("residual_std_psi") or 0.0)
     return {
         "pwf_physics_psia": float(physics_pwf),
         "correction_psi": correction,
         "pwf_ml_psia": float(physics_pwf) + correction,
+        "band_psi": round(band_psi, 3),
     }

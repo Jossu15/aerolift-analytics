@@ -1,4 +1,4 @@
-﻿"""
+"""
 math_engine.charts
 ------------------
 Plotly figure builders for AeroLift Analytics dashboard.
@@ -21,6 +21,26 @@ _F2R = 459.67
 _TEMPLATE = "plotly_white"
 
 
+def _crit_velocity(method, p_psia, t_rankine, gamma_g, d_in,
+                   liquid_type='water'):
+    """Critical velocity (ft/s) honoring the regime-aware ensemble methods.
+
+    Droplet methods (turner/coleman/li) keep the classic closed form;
+    'barnea'/'smart' route through the Barnea-driven ensemble (roadmap
+    2.6) so the sensitivity charts stay meaningful for those wells.
+    """
+    method_key = (method or 'turner').lower()
+    if method_key in ('barnea', 'smart'):
+        from math_engine.loading_ensemble import ensemble_critical_velocity
+        return ensemble_critical_velocity(
+            p_psia, t_rankine, gamma_g, d_in,
+            liquid_type=liquid_type)["v_crit_ft_s"]
+    props = get_gas_properties(p_psia, t_rankine, gamma_g)
+    sigma, rho_L = _liquid_properties(liquid_type)
+    return critical_velocity(method_key, rho_L,
+                             props['density_lbm_ft3'], sigma)
+
+
 def plot_operating_envelope(p_res, t_res, gamma_g, tubing_id,
                             q_actual=None, liquid_type='water',
                             method='turner'):
@@ -34,7 +54,8 @@ def plot_operating_envelope(p_res, t_res, gamma_g, tubing_id,
             sigma, rho_L = _liquid_properties(liquid_type)
             if rho_g >= rho_L:
                 continue
-            v_crit = critical_velocity(method, rho_L, rho_g, sigma)
+            v_crit = _crit_velocity(method, p, t_res, gamma_g, tubing_id,
+                                    liquid_type)
             Bg = gas_fvf(p, t_res, props['z'])
             d_ft = tubing_id / 12.0
             area = math.pi * (d_ft ** 2) / 4.0
@@ -91,7 +112,8 @@ def plot_vcrit_vs_pressure(t_res, gamma_g, tubing_id, liquid_type='water',
             sigma, rho_L = _liquid_properties(liquid_type)
             if rho_g >= rho_L:
                 continue
-            v = critical_velocity(method, rho_L, rho_g, sigma)
+            v = _crit_velocity(method, p, t_res, gamma_g, tubing_id,
+                               liquid_type)
             Bg = gas_fvf(p, t_res, props['z'])
             d_ft = tubing_id / 12.0
             area = math.pi * (d_ft ** 2) / 4.0
@@ -128,7 +150,8 @@ def plot_vcrit_vs_temperature(p, gamma_g, tubing_id, liquid_type='water',
             sigma = sigma_temperature_correction(sigma_base, t_r, liquid_type=liquid_type)
             if rho_g >= rho_L:
                 continue
-            v = critical_velocity(method, rho_L, rho_g, sigma)
+            v = _crit_velocity(method, p, t_r, gamma_g, tubing_id,
+                               liquid_type)
             temps.append(t_f)
             v_crits.append(v)
             sigmas.append(sigma)
@@ -158,7 +181,7 @@ def plot_vcrit_vs_diameter(p, t_res, gamma_g, liquid_type='water',
             sigma, rho_L = _liquid_properties(liquid_type)
             if rho_g >= rho_L:
                 v_crits.append(0); q_crits.append(0); continue
-            v = critical_velocity(method, rho_L, rho_g, sigma)
+            v = _crit_velocity(method, p, t_res, gamma_g, d, liquid_type)
             Bg = gas_fvf(p, t_res, props['z'])
             d_ft = d / 12.0
             area = math.pi * (d_ft ** 2) / 4.0

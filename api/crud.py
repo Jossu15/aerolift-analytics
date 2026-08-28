@@ -45,6 +45,7 @@ def update_well(db: Session, well: models.Well,
 
 
 def delete_well(db: Session, well: models.Well) -> None:
+    from api import ml_service
     db.query(models.ProductionRecord).filter(
         models.ProductionRecord.well_id == well.id).delete()
     db.query(models.ScadaReading).filter(
@@ -53,6 +54,13 @@ def delete_well(db: Session, well: models.Well) -> None:
         models.DeliverabilityTest.well_id == well.id).delete()
     db.query(models.WellAlert).filter(
         models.WellAlert.well_id == well.id).delete()
+    # Versioned digital twins: drop the rows (source of truth) and the
+    # joblib artifacts backing them, same hygiene as the snapshots.
+    twins = db.query(models.TwinModel).filter(
+        models.TwinModel.well_id == well.id).all()
+    for twin in twins:
+        ml_service.delete_artifact(twin.ml_path)
+        db.delete(twin)
     db.delete(well)
     db.commit()
 

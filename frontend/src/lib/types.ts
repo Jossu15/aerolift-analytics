@@ -88,3 +88,31 @@ export interface Alert {
   q_min_stable_mscfd: number | null;
   computed_at: string | null;
 }
+
+export interface Twin {
+  version: number;
+  trained_at: string;
+  active: boolean;
+  source: string;
+  n_points: number;
+  mae_psi: number | null;
+  r2: number | null;
+  residual_mean_psi: number | null;
+  residual_std_psi: number | null;
+}
+
+export interface TrainResult extends Twin {
+  features: string[];
+}
+
+export interface MlStatus {
+  trained: boolean;
+  version?: number | null;
+  active?: boolean;
+  source?: string;
+  ml_path?: string | null;
+  features?: string[];
+  n_points?: number;
+  metrics?: Record<string, number>;
+  trained_at?: string;
+}

@@ -9,6 +9,9 @@ Advanced liquid loading prediction engine combining multiple models:
   4. Belfroid et al. (2008) — inclination correction for deviated wells
   5. Film-flow criterion — liquid film reversal (annular flow)
   6. Adaptive ensemble — selects best model based on well conditions
+  7. Barnea regime ensemble ('barnea') — flow-pattern driven mechanism
+     decision (annular/mist -> droplet lift; slug/churn -> film reversal);
+     powered by math_engine.barnea plus chen2016 / liu2018 / ikpeka2018.
 
 Key equations (field units: ft/s, dyne/cm, lbm/ft3, psia, Rankine):
 
@@ -301,8 +304,15 @@ def minimum_flow_rate(p, T, gamma_g, d, liquid_type='water',
     if rho_g >= rho_L:
         return float('inf')
 
-    v_crit_base = critical_velocity(method, rho_L, rho_g, sigma)
-    v_crit = v_crit_base * belfroid_correction(inclination_deg)
+    method_key = (method or 'turner').lower()
+    if method_key in ('barnea', 'smart'):
+        from math_engine.loading_ensemble import ensemble_critical_velocity
+        v_crit = ensemble_critical_velocity(
+            p, T, gamma_g, d, liquid_type=liquid_type, sigma=sigma,
+            rho_L=rho_L, inclination_deg=inclination_deg)["v_crit_ft_s"]
+    else:
+        v_crit_base = critical_velocity(method_key, rho_L, rho_g, sigma)
+        v_crit = v_crit_base * belfroid_correction(inclination_deg)
 
     Bg = gas_fvf(p, T, props['z'])
     d_ft = d / 12.0
@@ -335,14 +345,18 @@ def loading_assessment(P, T, gamma_g, d, q_actual_mscfd,
     :param liquid_type: 'water' or 'condensate'.
     :param rho_liquid: Optional liquid density override (lbm/ft3).
     :param sigma_dynecm: Optional surface tension override (dyne/cm).
-    :param method: 'turner', 'coleman', or 'li'.
+    :param method: 'turner', 'coleman', 'li', 'barnea' or 'smart'
+        ('barnea'/'smart' use the regime-aware ensemble).
     :param inclination_deg: Angle from horizontal (0-90°).
     :param correct_sigma_temp: Apply temperature correction to sigma.
     :return: dict with velocities, critical rate, is_loading flag and margin.
     """
+    from math_engine.loading_ensemble import ensemble_critical_velocity
+
     method_key = (method or 'turner').lower()
-    if method_key not in _METHOD_CONSTANTS:
-        raise ValueError("method must be 'turner', 'coleman', or 'li'")
+    if method_key not in ('turner', 'coleman', 'li', 'barnea', 'smart'):
+        raise ValueError(
+            "method must be 'turner', 'coleman', 'li', 'barnea' or 'smart'")
 
     props = get_gas_properties(P, T, gamma_g)
     Z = props['z']
@@ -352,8 +366,14 @@ def loading_assessment(P, T, gamma_g, d, q_actual_mscfd,
     if correct_sigma_temp and sigma_dynecm is None:
         sigma = sigma_temperature_correction(sigma, T, liquid_type=liquid_type)
 
+    ens = None
     if rho_g >= rho_L:
         v_crit = 0.0
+    elif method_key in ('barnea', 'smart'):
+        ens = ensemble_critical_velocity(
+            P, T, gamma_g, d, liquid_type=liquid_type, sigma=sigma,
+            rho_L=rho_L, inclination_deg=inclination_deg)
+        v_crit = ens["v_crit_ft_s"]
     else:
         v_crit_base = critical_velocity(method_key, rho_L, rho_g, sigma)
         v_crit = v_crit_base * belfroid_correction(inclination_deg)
@@ -382,6 +402,9 @@ def loading_assessment(P, T, gamma_g, d, q_actual_mscfd,
         "is_loading": is_loading,
         "margin_fraction": margin,
         "inclination_deg": inclination_deg,
+        "mechanism": (ens or {}).get("mechanism"),
+        "regime": (ens or {}).get("regime"),
+        "models": (ens or {}).get("models"),
     }
 
 

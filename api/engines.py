@@ -169,6 +169,10 @@ def loading_snapshot(well, q_gas_mscfd, q_water_bpd=None, p_wh=None) -> dict:
         "metastable_regime": meta["regime"],
         "q_min_stable_mscfd": meta["q_min_stable_mscfd"],
         "film_reynolds": meta["film_reynolds"],
+        "method": res.get("method"),
+        "mechanism": res.get("mechanism"),
+        "regime": res.get("regime"),
+        "models": res.get("models"),
     }
 
 

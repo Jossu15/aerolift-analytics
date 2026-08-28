@@ -5,6 +5,9 @@ import type {
   ChartsResult,
   ApiKeyInfo,
   Alert,
+  Twin,
+  TrainResult,
+  MlStatus,
 } from "./types";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
@@ -59,4 +62,19 @@ export async function getAlerts(): Promise<Alert[]> {
 
 export async function getApiKeyInfo(): Promise<ApiKeyInfo> {
   return apiFetch<ApiKeyInfo>("/api/auth/me");
+}
+
+export async function getTwins(id: number): Promise<Twin[]> {
+  return apiFetch<Twin[]>(`/api/wells/${id}/ml/twins`);
+}
+
+export async function getMlStatus(id: number): Promise<MlStatus> {
+  return apiFetch<MlStatus>(`/api/wells/${id}/ml/status`);
+}
+
+export async function trainTwin(id: number): Promise<TrainResult> {
+  return apiFetch<TrainResult>(`/api/wells/${id}/ml/train`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+  });
 }

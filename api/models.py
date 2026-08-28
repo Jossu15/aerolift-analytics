@@ -3,7 +3,7 @@
 from datetime import datetime, timezone
 
 from sqlalchemy import JSON, Boolean, Column, DateTime, Float, ForeignKey, \
-    Integer, String
+    Integer, String, UniqueConstraint
 
 from api.database import Base
 
@@ -147,3 +147,42 @@ class WellAlert(Base):
     metastable_regime = Column(String(16))
     q_min_stable_mscfd = Column(Float)
     last_notified_severity = Column(String(8))
+
+
+class TwinModel(Base):
+    """Versioned digital-twin calibration row for one well (Fase 2.1).
+
+    Every successful retrain of the residual forest inserts a new row;
+    the previous ones keep their history and only `active` flips. The
+    matrix lives in a joblib artifact (`ml_path`); Postgres is the source
+    of truth for which version is current and why (metrics, data size).
+    """
+    __tablename__ = "twin_models"
+    __table_args__ = (
+        UniqueConstraint("well_id", "version", name="uq_twin_well_version"),
+    )
+
+    id = Column(Integer, primary_key=True)
+    well_id = Column(Integer, ForeignKey("wells.id"), nullable=False,
+                     index=True)
+    version = Column(Integer, nullable=False)
+    trained_at = Column(DateTime, nullable=False, default=_utcnow)
+    active = Column(Boolean, nullable=False, default=True)
+    source = Column(String(16), nullable=False, default="manual")
+    # Data + fit quality (may be partial when a metric cannot be computed)
+    n_points = Column(Integer, nullable=False)
+    mae_psi = Column(Float)
+    r2 = Column(Float)
+    residual_mean_psi = Column(Float)
+    residual_std_psi = Column(Float)
+    features = Column(String(512), nullable=False, default="[]")
+    ml_path = Column(String(512), nullable=False)
+
+    @property
+    def metrics(self) -> dict:
+        return {
+            "mae_psi": self.mae_psi,
+            "r2": self.r2,
+            "residual_mean_psi": self.residual_mean_psi,
+            "residual_std_psi": self.residual_std_psi,
+        }

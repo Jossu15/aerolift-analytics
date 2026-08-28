@@ -2,7 +2,7 @@
 
 **Platform:** Gas & oil well optimization engine with physics-first models, ML corrections, and economic evaluation.
 **Primary Source:** *Gas Reservoir Engineering* by Lee & Wattenbarger (SPE Textbook Vol. 5).
-**Status:** 287 tests passing, Docker stack running (Postgres + FastAPI + Next.js + Streamlit).
+**Status:** 312 tests passing, Docker stack running (Postgres + FastAPI + Next.js + Streamlit). Fase 2 (Digital Twin) completa: regeneración física por pozo, ensemble Barnea, UI de confianza.
 
 ---
 
@@ -103,6 +103,24 @@ Dominates at LOW gas rates in LARGE diameter tubing.
 4. Large tubing (D > 3"):  max(result, Film flow)
 5. Final: v_crit = max(all applicable)
 ```
+Además, `load_method` ahora acepta `turner | coleman | barnea` (Fase 2.6).
+`barnea`/`smart` conmuta a `math_engine/loading_ensemble.py`: la
+clasificación de régimen de Barnea (1986) por void-fraction drift-flux
+(`α = vsg / (C0·vm + 0.35·√(gD))`, C0=1.2; bandas bubble < 0.25, slug
+[0.25, 0.52), churn [0.52, 0.80), annular ≥ 0.80 — vsl≈0 → annular).
+
+Familias físicas del ensemble:
+  - **Gota** (annular): Turner ó max(Turner, Li) si P > 3000 psia, con la
+    corrección de deformación de Ikpeka-2018 (We-based, C clamp [0.6, 1.0])
+    y × Belfroid si θ < 70°.
+  - **Película** (slug/churn/bubble): max(Wallis × Chen-2016, Liu-2018).
+    - Chen-2016: penalización angular f = 1/√sinθ (cap 12.0).
+    - Liu-2018: velocidad de reversión de película con δ = H·D/4 (H = 0.10,
+      fi = 0.02) y componente axial de la gravedad (máxima en vertical).
+  - Guardas: Li a alta presión, película en tubing grande (D > 3.5 in).
+El régimen se clasifica a la velocidad crítica (autoconsistente) y el
+resultado expone `mechanism`/`regime`/`models`. La banda ±1σ del residual
+ML se mapea a banda de tasa vía `residual_rate_band` (clamp ±50 %).
 
 ### 2.7 Actual Gas Velocity
 ```
@@ -487,8 +505,54 @@ dashboard → Streamlit → http://localhost:8501
 API key-based (`X-API-Key` header). Tiers: basic (reading), pro (full analytics).
 
 ### Alembic Migrations
-8 versions: schema creation, friction_multiplier, calibration, SCADA,
-oil wells, well_alerts, alert_margin_pct (head `f4a11e7c2b90`).
+9 versiones: schema creation, friction_multiplier, calibration, SCADA,
+oil wells, well_alerts, alert_margin_pct, twin_models_versioned (head
+`b3c9d1e5f6a7`).
+
+---
+
+## 22. Digital Twin (Fase 2) — calibración por pozo
+
+### TwinModel (`api/models.py`, migración `b3c9d1e5f6a7`)
+Un pozo puede tener varios "gemelos" versionados. Train idempotente: sin
+datos nuevos no se re-entrena (401/409 vs. último entrenamiento). Campos:
+`version`, `active`, `n_points`, `r2`, `residual_std_psi`,
+`feature_importances`, `created_at`.
+
+### `api/ml_service.py`
+- `train_twin` — entrena un Random Forest sobre `measured_pwf −
+  physics_pwf(q)`, versión monótona, `latest` siempre apunta a la
+  `train_key`, artefactos joblib en `AEROLIFT_ML_DIR` (por defecto junto a
+  Postgres como fuente de verdad con fallback legacy al pickle).
+- `get_active_twin` / `get_artifact` — exporta la banda ±1σ
+  (`residual_std_psi`) y las feature importances.
+- `delete_artifact` — borra los joblib al eliminar un pozo.
+
+### Endpoints (`api/routers/ml.py`) — pro
+| Method | Path | Descripción |
+|---|---|---|
+| GET | `/api/wells/{id}/ml/twins` | Historial versionado del twin |
+| GET | `/api/wells/{id}/ml/status` | Estado (n_points, r2, última fecha) |
+| POST | `/api/wells/{id}/ml/train` | Entrenar/re-entrenar (409 con `detail` si sin datos nuevos o 409 sin historial Pwf) |
+| POST | `/api/wells/{id}/ml/predict` | Predict corregido: `pwf_physics_psia`, `pwf_ml_psia`, `correction_psi`, `band_psi` (±1σ) |
+
+### Scheduler (`api/scheduler.py`) — `twin_calibration_loop`
+Re-entrena cada pozo activo cuando llegan ≥ `ML_MIN_NEW_POINTS` (10)
+registros nuevos; duerme `ML_POLL_SECONDS` (default 3600).
+`ALERT_SCHEDULER_ENABLED` aplica también al loop del twin.
+
+### UI (frontend Next.js)
+Pestaña **"Digital Twin"** en `/dashboard/[wellId]`: historial de
+versiones, banda ±1σ en el predict, botón Entrenar/Re-entrenar y estado
+`MlStatus`. `frontend/src/lib/types.ts` + `api.ts` exponen `Twin`,
+`TrainResult`, `MlStatus`, `getTwins`, `getMlStatus`, `trainTwin`.
+
+### Higiene de datos
+`crud.delete_well` limpia en cascada: `WellAlert`, `TwinModel` y
+artefactos joblib del twin (`ml_service.delete_artifact`), evitando
+residuos huérfanos en Postgres/disco y floats id de autoincrement.
+`LoadingOut` y `loading_snapshot` exponen `method`, `mechanism`, `regime`
+y `models` (aditivos, null si el método clásico no aplica).
 
 ---
 

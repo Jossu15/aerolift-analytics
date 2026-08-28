@@ -45,6 +45,10 @@ class LoadingOut(BaseModel):
     metastable_regime: str = "stable"
     q_min_stable_mscfd: Optional[float] = None
     film_reynolds: Optional[float] = None
+    method: Optional[str] = None
+    mechanism: Optional[str] = None
+    regime: Optional[str] = None
+    models: Optional[List[str]] = None
 
 
 class Intersection(BaseModel):

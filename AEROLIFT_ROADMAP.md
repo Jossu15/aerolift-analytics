@@ -111,8 +111,22 @@ Producto que se vende no al ingeniero sino al gerente de producción/activo — 
     no-op sin credenciales, igual que Slack; fan-out Slack+email en
     escalamientos con dedup por severidad.
   - 287 tests backend verdes.
-- [ ] **Fase 2 — Digital Twin** (loop de calibración + TwinModel, módulos
-  Barnea/Chen/Liu/Ikpeka, loading ensemble ±1σ, UI de confianza).
+- [x] **Fase 2 — Digital Twin** (loop de calibración + `TwinModel`
+  versionado, módulos Barnea/Chen/Liu/Ikpeka, loading ensemble `barnea`
+  ±1σ, UI de confianza en `/dashboard/[wellId]`):
+  - 2.1 — `TwinModel` regenerado versionado + `ml_service` (train
+    idempotente, `get_artifact` con fallback legacy, `delete_artifact`) +
+    endpoints `/api/wells/{id}/ml/*` + scheduler
+    `twin_calibration_loop`; `delete_well` limpia WellAlert/TwinModel/
+    artefactos.
+  - 2.2-2.5 — `math_engine/barnea.py` (clasificación por patrones),
+    `chen2016.py` (penalización angular), `liu2018.py` (film reversal),
+    `ikpeka2018.py` (deformación de gota We).
+  - 2.6 — `math_engine/loading_ensemble.py` selecciona familia gota vs.
+    película por régimen Barnea; `load_method` acepta `barnea`; el predit
+    ML expone banda ±1σ (`band_psi`).
+  - 2.7 — pestaña "Digital Twin" en el frontend (tsc + eslint limpios).
+  - 312 tests backend verdes; smoke WSL con stack completo verde.
 - [ ] **Fase 3 — Portfolio Optimizer** (endpoints `/api/portfolio/*`,
   ranking NPV/ROI/payback, knapsack de presupuesto, dashboard ejecutivo,
   reporte PDF).

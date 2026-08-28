@@ -1,11 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import dynamic from "next/dynamic";
-import { getWell, getLoading, getForecast, getCharts } from "@/lib/api";
-import type { Well, LoadingResult, ForecastResult, ChartsResult } from "@/lib/types";
+import { getWell, getLoading, getForecast, getCharts, getTwins, getMlStatus, trainTwin } from "@/lib/api";
+import type { Well, LoadingResult, ForecastResult, ChartsResult, Twin, MlStatus } from "@/lib/types";
 
 const Plot = dynamic(() => import("react-plotly.js"), { ssr: false });
 
@@ -32,13 +32,14 @@ const STATUS_TEXT: Record<string, string> = {
   red: "text-red-600",
 };
 
-type TabKey = "resumen" | "forecast" | "carga" | "sensibilidad";
+type TabKey = "resumen" | "forecast" | "carga" | "sensibilidad" | "twin";
 
 const TABS: { key: TabKey; label: string }[] = [
   { key: "resumen", label: "Resumen" },
   { key: "forecast", label: "Pronostico" },
   { key: "carga", label: "Carga liquida" },
   { key: "sensibilidad", label: "Sensibilidad" },
+  { key: "twin", label: "Digital Twin" },
 ];
 
 export default function WellDetailPage() {
@@ -49,9 +50,33 @@ export default function WellDetailPage() {
   const [loading, setLoading] = useState<LoadingResult | null>(null);
   const [forecast, setForecast] = useState<ForecastResult | null>(null);
   const [charts, setCharts] = useState<ChartsResult | null>(null);
+  const [twins, setTwins] = useState<Twin[]>([]);
+  const [mlStatus, setMlStatus] = useState<MlStatus | null>(null);
+  const [twinBusy, setTwinBusy] = useState(false);
+  const [twinMsg, setTwinMsg] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loadingState, setLoadingState] = useState(true);
   const [tab, setTab] = useState<TabKey>("resumen");
+
+  const refreshTwinCb = useCallback(async () => {
+    const [t, s] = await Promise.all([getTwins(wellId), getMlStatus(wellId)]);
+    setTwins(t);
+    setMlStatus(s);
+  }, [wellId]);
+
+  async function handleTrain() {
+    setTwinBusy(true);
+    setTwinMsg(null);
+    try {
+      await trainTwin(wellId);
+      await refreshTwinCb();
+      setTwinMsg("Twin reentrenado correctamente.");
+    } catch (e: unknown) {
+      setTwinMsg(e instanceof Error ? e.message : "Error al entrenar twin");
+    } finally {
+      setTwinBusy(false);
+    }
+  }
 
   useEffect(() => {
     async function load() {
@@ -67,6 +92,7 @@ export default function WellDetailPage() {
         getCharts(wellId)
           .then(setCharts)
           .catch(() => setCharts(null));
+        refreshTwinCb().catch(() => undefined);
       } catch (e: unknown) {
         setError(e instanceof Error ? e.message : "Error desconocido");
       } finally {
@@ -74,7 +100,7 @@ export default function WellDetailPage() {
       }
     }
     load();
-  }, [wellId]);
+  }, [wellId, refreshTwinCb]);
 
   if (loadingState) {
     return (
@@ -342,6 +368,104 @@ export default function WellDetailPage() {
                 Graficas no disponibles para este pozo.
               </div>
             )}
+          </div>
+        )}
+
+        {tab === "twin" && (
+          <div className="space-y-6">
+            <div className="bg-white rounded-lg border p-4 flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h2 className="font-semibold text-gray-800">
+                  {mlStatus?.trained ? "Twin activo" : "Sin twin entrenado"}
+                </h2>
+                <p className="text-sm text-gray-500 mt-1">
+                  Correccion residual (ML) sobre el VLP f&iacute;sico.
+                  {mlStatus?.active === false ? " Este twin no esta activo." : ""}
+                </p>
+              </div>
+              <button
+                onClick={handleTrain}
+                disabled={twinBusy}
+                className="px-4 py-2 rounded-lg text-sm font-medium bg-blue-600 text-white disabled:opacity-50 hover:bg-blue-700 transition"
+              >
+                {twinBusy ? "Entrenando..." : mlStatus?.trained ? "Reentrenar" : "Entrenar"}
+              </button>
+            </div>
+
+            {twinMsg && (
+              <p className="text-sm text-gray-600 bg-gray-50 border rounded-lg px-3 py-2">
+                {twinMsg}
+              </p>
+            )}
+
+            {(twins.length > 0 ? twins : [{ active: true, version: null, source: "", trained_at: "", n_points: 0, mae_psi: null, r2: null, residual_mean_psi: null, residual_std_psi: null }])
+              .slice(0, 1)
+              .map((t, i) => (
+                <div key={i} className="bg-white rounded-lg border p-4">
+                  <h3 className="text-sm font-semibold text-gray-700 mb-3">
+                    {t.version !== null ? `Version v${t.version}` : "Perfil actual"}
+                  </h3>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
+                    {[
+                      ["Fuente", t.source || "legacy"],
+                      ["Puntos", t.n_points !== null && t.n_points !== 0 ? `${t.n_points}` : "n/a"],
+                      ["MAE", t.mae_psi !== null ? `${t.mae_psi.toFixed(2)} psi` : "n/a"],
+                      ["r²", t.r2 !== null ? t.r2.toFixed(3) : "n/a"],
+                      ["Residuo medio", t.residual_mean_psi !== null ? `${t.residual_mean_psi.toFixed(2)} psi` : "n/a"],
+                      ["Banda ±1σ", t.residual_std_psi !== null ? `± ${t.residual_std_psi.toFixed(2)} psi` : "n/a"],
+                      ["Entrenado", t.trained_at ? new Date(t.trained_at).toLocaleString() : "n/a"],
+                      ["Estado", t.active ? "activo" : "historico"],
+                    ].map(([label, value]) => (
+                      <div key={label as string}>
+                        <span className="text-gray-400 text-xs block">{label}</span>
+                        <p className="font-mono text-gray-800">{value}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+
+            <div className="bg-white rounded-lg border p-4">
+              <h3 className="text-sm font-semibold text-gray-700 mb-3">
+                Historial de calibracion
+              </h3>
+              {twins.length === 0 ? (
+                <p className="text-sm text-gray-400">
+                  Aun no hay versiones. Entrena el twin para generar la primera.
+                </p>
+              ) : (
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-left text-gray-400 text-xs border-b">
+                      <th className="pb-2">Version</th>
+                      <th className="pb-2">Puntos</th>
+                      <th className="pb-2">MAE (psi)</th>
+                      <th className="pb-2">r²</th>
+                      <th className="pb-2">±1σ (psi)</th>
+                      <th className="pb-2">Fuente</th>
+                      <th className="pb-2">Estado</th>
+                      <th className="pb-2">Entrenado</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {twins.map((t) => (
+                      <tr key={t.version} className="border-b last:border-0">
+                        <td className="py-2 font-mono">v{t.version}</td>
+                        <td className="py-2">{t.n_points}</td>
+                        <td className="py-2">{t.mae_psi?.toFixed(2) ?? "n/a"}</td>
+                        <td className="py-2">{t.r2?.toFixed(3) ?? "n/a"}</td>
+                        <td className="py-2">
+                          {t.residual_std_psi !== null ? `± ${t.residual_std_psi.toFixed(2)}` : "n/a"}
+                        </td>
+                        <td className="py-2">{t.source}</td>
+                        <td className="py-2">{t.active ? "activo" : "historico"}</td>
+                        <td className="py-2">{new Date(t.trained_at).toLocaleString()}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
           </div>
         )}
       </div>

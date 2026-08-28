@@ -103,6 +103,8 @@ class TestMlApi:
             pb["pwf_physics_psia"] + pb["correction_psi"], abs=0.01)
         assert abs(pb["correction_psi"]) < 500
         assert pb["n_points"] == body["n_points"]
+        # Fase 2.6: the corrected prediction carries its ±1σ band
+        assert pb["band_psi"] >= 0
 
     def test_train_without_pwf_history_409(self, client, unique_tag):
         from tests.conftest import DEMO_WELL
@@ -112,8 +114,77 @@ class TestMlApi:
                               json=payload).json()
         r = client.post("/api/wells/{}/ml/train".format(created["id"]))
         assert r.status_code == 409
+        client.delete("/api/wells/{}".format(created["id"]))
 
     def test_basic_tier_blocked(self, basic_client, tested_well_id):
         r = basic_client.post(
             "/api/wells/{}/ml/train".format(tested_well_id))
         assert r.status_code == 403
+
+
+class TestVersionedTwins:
+    """Fase 2.1 - retrain is versioned and Postgres is the source of truth."""
+
+    @staticmethod
+    def _train(client, well_id):
+        return client.post("/api/wells/{}/ml/train".format(well_id))
+
+    @staticmethod
+    def _upload(client, well_id, n):
+        from tests.test_ml import TestMlApi
+        return client.post(
+            "/api/wells/{}/history/csv".format(well_id),
+            content=TestMlApi._csv(n).encode("utf-8"),
+            headers={"Content-Type": "text/csv"})
+
+    def test_retrain_versions_and_flips_active(self, client,
+                                               tested_well_id):
+        up1 = self._upload(client, tested_well_id, 65)
+        assert up1.json()["records_added"] == 65
+        v1 = self._train(client, tested_well_id).json()
+        assert v1["version"] == 1 and v1["active"] is True
+        assert v1["residual_std_psi"] is not None and v1["r2"] > 0.8
+
+        up2 = self._upload(client, tested_well_id, 85)
+        assert up2.json()["records_added"] == 85
+        v2 = self._train(client, tested_well_id).json()
+        assert v2["version"] == 2 and v2["active"] is True
+        assert v2["n_points"] > v1["n_points"]
+
+        st = client.get(
+            "/api/wells/{}/ml/status".format(tested_well_id)).json()
+        assert st["version"] == 2 and st["active"] is True
+        assert st["metrics"]["residual_std_psi"] is not None
+
+        twins = client.get(
+            "/api/wells/{}/ml/twins".format(tested_well_id)).json()
+        assert [t["version"] for t in twins] == [1, 2]
+        assert [t["active"] for t in twins] == [False, True]
+
+        pr = client.post(
+            "/api/wells/{}/ml/predict".format(tested_well_id),
+            json={"q_gas_mscfd": 1200.0, "q_water_bpd": 25.0}).json()
+        assert pr["n_points"] == v2["n_points"]
+        assert abs(pr["correction_psi"]) < 500
+
+    def test_train_idempotent_without_new_data(self, client,
+                                               tested_well_id):
+        up = self._upload(client, tested_well_id, 60)
+        assert up.json()["records_added"] == 60
+        first = self._train(client, tested_well_id)
+        assert first.status_code == 200, first.text
+        v1 = first.json()
+        again = self._train(client, tested_well_id)
+        assert again.status_code == 200, again.text
+        same = again.json()
+        assert same["version"] == v1["version"] == 1
+        twins = client.get(
+            "/api/wells/{}/ml/twins".format(tested_well_id)).json()
+        assert len(twins) == 1
+
+    def test_twin_calibration_gate_off_by_default(self, monkeypatch):
+        from api.scheduler import twin_calibration_enabled
+        monkeypatch.delenv("TWIN_CALIBRATION_ENABLED", raising=False)
+        assert twin_calibration_enabled() is False
+        monkeypatch.setenv("TWIN_CALIBRATION_ENABLED", "1")
+        assert twin_calibration_enabled() is True
