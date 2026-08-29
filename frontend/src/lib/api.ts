@@ -15,7 +15,7 @@ import type {
   PortfolioRunDetail,
 } from "./types";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
 const API_KEY = process.env.NEXT_PUBLIC_API_KEY || "";
 
 async function apiFetch<T>(

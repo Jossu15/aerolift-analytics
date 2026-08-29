@@ -63,7 +63,7 @@ export default function DashboardGrid() {
         <p className="text-red-700 font-medium">Error al conectar con la API</p>
         <p className="text-red-500 text-sm mt-1">{error}</p>
         <p className="text-gray-400 text-xs mt-3">
-          Verifica que el backend este corriendo en {process.env.NEXT_PUBLIC_API_URL || "localhost:8000"}
+          Verifica que el backend este corriendo en {process.env.NEXT_PUBLIC_API_URL || "127.0.0.1:8000"}
         </p>
       </div>
     );

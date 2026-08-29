@@ -87,11 +87,11 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
       args:
-        NEXT_PUBLIC_API_URL: http://localhost:8000
+        NEXT_PUBLIC_API_URL: http://127.0.0.1:8000
         NEXT_PUBLIC_API_KEY: ${AEROLIFT_API_KEY:-aero__OncyEhnA6VGlm9-q7CjiKzDOs1EkudB3cCOiAla}
     container_name: aerolift-frontend
     environment:
-      NEXT_PUBLIC_API_URL: http://localhost:8000
+      NEXT_PUBLIC_API_URL: http://127.0.0.1:8000
       NEXT_PUBLIC_API_KEY: ${AEROLIFT_API_KEY:-aero__OncyEhnA6VGlm9-q7CjiKzDOs1EkudB3cCOiAla}
     ports:
       - "3000:3000"

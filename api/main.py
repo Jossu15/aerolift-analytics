@@ -14,9 +14,11 @@ scripts/mint_key.py). /health and / stay open for liveness probes.
 """
 
 import asyncio
+import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from api import __version__
 from api.database import init_db
@@ -57,6 +59,15 @@ def create_app() -> FastAPI:
                     "contract for dashboards and SCADA historians.",
         version=__version__,
         lifespan=lifespan)
+    _cors_origins = os.environ.get(
+        "CORS_ORIGINS",
+        "http://localhost:3000,http://127.0.0.1:3000")
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=[o.strip() for o in _cors_origins.split(",") if o.strip()],
+        allow_credentials=False,
+        allow_methods=["*"],
+        allow_headers=["*"])
     app.include_router(auth.router)
     app.include_router(wells.router)
     app.include_router(bulk.router)

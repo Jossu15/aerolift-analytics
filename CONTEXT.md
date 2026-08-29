@@ -517,9 +517,19 @@ frontend  → Next.js → http://localhost:3000
 - En mirrored el loopback IPv6 del host (`::1`) puede aceptar la conexión a
   `localhost:8000` y no entregar datos (los sockets docker se ligan a `[::]`).
   Workaround aplicado: línea `127.0.0.1 localhost` en el `hosts` file (los
-  clientes de red v4-only responden al instante; los navegadores caen a
-  `127.0.0.1` vía happy-eyeballs y funcionan). Backup del de estado NAT:
+  clientes de red v4-only responden al instante). Backup del de estado NAT:
   `C:\Users\Lenovo\.wslconfig.bak`.
+- **Navegador (Chrome/Edge)**: probar `localhost` con `::1` primero, y los
+  hosts del file no lo evitan → un `fetch` a `http://localhost:8000` desde el
+  frontend se colgaba ("Failed to fetch") aun con el API arriba. Fix doble:
+  1. El frontend llama a la API por la **literal IPv4** `http://127.0.0.1:8000`
+     (`NEXT_PUBLIC_API_URL` como build arg + env en `docker-compose.yml`,
+     default en `frontend/src/lib/api.ts`) → sin tanteo `::1`.
+  2. El API expone **CORSMiddleware** (`api/main.py`) con allowlist de
+     orígenes vía env `CORS_ORIGINS` (default
+     `http://localhost:3000,http://127.0.0.1:3000`): los `fetch` cross-origin
+     del frontend pasaban bloqueados por ausencia de `Access-Control-*` (el
+     "Failed to fetch" tenía dos causas: CORS y `::1`; las dos corregidas).
 - Windows Firewall: reglas inbound `WSL-Aerolift-TCP-3000/8000/8501` creadas
   (permiten el tráfico hacia la VM en mirrored).
 - **Caveat ambiental**: el hypervisor suspende la VM WSL por ráfagas (snapd
