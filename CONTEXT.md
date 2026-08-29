@@ -507,14 +507,30 @@ frontend  → Next.js → http://localhost:3000
 ```
 
 ### Alcance desde el navegador de Windows (WSL2)
-- El engine Docker corre **dentro de la distro Ubuntu** de WSL; los puertos
-  publicados se ligan a `0.0.0.0` en la VM y Windows los alcanza por la IP
-  de la VM (`wsl hostname -I`). El relay `localhost` de WSL (`wslrelay`)
-  enlaza/desenlaza `127.0.0.1:*` de forma intermitente → a veces el
-  navegador da `ERR_CONNECTION_REFUSED` aunque los contenedores estén sanos.
-- Fix determinístico: `scripts/portproxy-win.ps1` (ejecutar elevado, pide
-  UAC). Crea reglas `netsh interface portproxy` de `127.0.0.1:3000/8000/8501`
-  → IP de la VM, independientes del relay. Reejecutar si vuelve a fallar.
+- Docker corre **dentro de la distro Ubuntu** de WSL. Para exponer los puertos
+  de forma determinística se usa **networking mode `mirrored`** en
+  `C:\Users\Lenovo\.wslconfig` (`networkingMode=mirrored`; requiere
+  `wsl --shutdown` al cambiarlo). Con mirrored, la VM comparte la IP del host
+  y los puertos publicados a `0.0.0.0` en `docker-compose.yml` se sirven
+  directo en `localhost:3000` (Next.js), `localhost:8000` (FastAPI/docs) y
+  `localhost:8501` (Streamlit) desde Windows, sin relay ni portproxy.
+- En mirrored el loopback IPv6 del host (`::1`) puede aceptar la conexión a
+  `localhost:8000` y no entregar datos (los sockets docker se ligan a `[::]`).
+  Workaround aplicado: línea `127.0.0.1 localhost` en el `hosts` file (los
+  clientes de red v4-only responden al instante; los navegadores caen a
+  `127.0.0.1` vía happy-eyeballs y funcionan). Backup del de estado NAT:
+  `C:\Users\Lenovo\.wslconfig.bak`.
+- Windows Firewall: reglas inbound `WSL-Aerolift-TCP-3000/8000/8501` creadas
+  (permiten el tráfico hacia la VM en mirrored).
+- **Caveat ambiental**: el hypervisor suspende la VM WSL por ráfagas (snapd
+  entra en "standby" y systemd detiene `docker.service` cada ~35-45 s) lo que
+  parpadea los puertos (~10 s caídos). El acceso se restablece solo con
+  `scripts/start-stack-win.ps1`, que levanta el stack (sin privilegios, usa la
+  socket-activation) y en modo guardian (`-Watch 3600`) relanza `docker
+  compose up -d` en cuanto detecta un puerto caído. Modo `-Once` arranca,
+  verifica los 3 puertos y abre el navegador con `-OpenBrowser`.
+- `scripts/portproxy-win.ps1` queda como legacy de la era NAT (reglas `netsh
+  interface portproxy` → IP de la VM); **ya no es necesario** con mirrored.
 
 ### Database Models (`api/models.py`)
 - `Well` — completion params, type (gas/oil), IPR coefficients,
