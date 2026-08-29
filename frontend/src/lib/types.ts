@@ -63,6 +63,80 @@ export interface ChartsResult {
   vcrit_vs_pressure: ChartFigure;
   vcrit_vs_temperature: ChartFigure;
   vcrit_vs_diameter: ChartFigure;
+  temperature_profile?: ChartFigure | null;
+  multi_model_comparison?: ChartFigure | null;
+  belfroid_envelope?: ChartFigure | null;
+  erosional_velocity?: ChartFigure | null;
+  hydrate_curve?: ChartFigure | null;
+  decline_type_curves?: ChartFigure | null;
+  pz?: ChartFigure | null;
+  deliverability_loglog?: ChartFigure | null;
+}
+
+export interface TraverseResult {
+  depths_ft: number[];
+  P_dry_gas_psia: number[];
+  bhfp_dry_gas_psia: number;
+  P_beggs_brill_psia: number[] | null;
+  bhfp_beggs_brill_psia: number | null;
+  bb_flow_patterns: Record<string, number> | null;
+}
+
+export interface CalibrationPoint {
+  date: string;
+  q_gas_mscfd: number;
+  pwf_measured_psia: number;
+  pwf_predicted_psia: number | null;
+  delta_pct: number | null;
+}
+
+export interface CalibrationResult {
+  n_points: number;
+  bias_pct: number | null;
+  mae_pct: number | null;
+  points: CalibrationPoint[];
+  note?: string | null;
+}
+
+export interface EconomicsRequest {
+  gp_mmscf: number[];
+  p_psia: number[];
+  intervention: string;
+  target_tubing_id_in?: number | null;
+  target_p_wh_psia?: number | null;
+  gas_price_usd_mcf?: number;
+  cost_usd?: number | null;
+  time_step_days?: number;
+}
+
+export interface OilIprPoint {
+  pwf_psia: number;
+  qo_stb_d: number;
+}
+
+export interface OilIprResult {
+  p_bubble_psia: number | null;
+  rs_at_p_res_scf_stb: number | null;
+  mu_o_cp: number | null;
+  qo_max_stb_d: number;
+  curve: OilIprPoint[];
+  warnings: string[];
+}
+
+export interface EconomicsResult {
+  intervention: string;
+  label: string;
+  cost_usd: number;
+  base_death_day: number | null;
+  intervention_death_day: number | null;
+  life_extension_days: number | null;
+  base_cum_mmscf: number;
+  intervention_cum_mmscf: number;
+  incremental_gas_mmscf: number;
+  gross_revenue_usd: number;
+  npv_usd: number;
+  roi_pct: number | null;
+  payback_months: number | null;
 }
 
 export interface ApiKeyInfo {

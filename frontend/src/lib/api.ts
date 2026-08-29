@@ -3,6 +3,11 @@ import type {
   LoadingResult,
   ForecastResult,
   ChartsResult,
+  TraverseResult,
+  CalibrationResult,
+  EconomicsRequest,
+  EconomicsResult,
+  OilIprResult,
   ApiKeyInfo,
   Alert,
   Twin,
@@ -45,8 +50,9 @@ export async function getWell(id: number): Promise<Well> {
   return apiFetch<Well>(`/api/wells/${id}`);
 }
 
-export async function getLoading(id: number): Promise<LoadingResult> {
-  return apiFetch<LoadingResult>(`/api/wells/${id}/analysis/loading`);
+export async function getLoading(id: number, q?: number): Promise<LoadingResult> {
+  const qs = q ? `?q_gas_mscfd=${q}` : "";
+  return apiFetch<LoadingResult>(`/api/wells/${id}/analysis/loading${qs}`);
 }
 
 export async function getForecast(id: number): Promise<ForecastResult> {
@@ -55,10 +61,62 @@ export async function getForecast(id: number): Promise<ForecastResult> {
   );
 }
 
-export async function getCharts(id: number): Promise<ChartsResult> {
-  return apiFetch<ChartsResult>(
-    `/api/wells/${id}/analysis/charts`
-  );
+export async function getCharts(id: number, q?: number): Promise<ChartsResult> {
+  const qs = q ? `?q_gas_mscfd=${q}` : "";
+  return apiFetch<ChartsResult>(`/api/wells/${id}/analysis/charts${qs}`);
+}
+
+export async function getTraverse(
+  id: number,
+  q?: number
+): Promise<TraverseResult> {
+  const qs = q ? `?q_gas_mscfd=${q}` : "";
+  return apiFetch<TraverseResult>(`/api/wells/${id}/analysis/traverse${qs}`);
+}
+
+export async function getCalibration(id: number): Promise<CalibrationResult> {
+  return apiFetch<CalibrationResult>(`/api/wells/${id}/analysis/calibration`);
+}
+
+export async function postEconomics(
+  id: number,
+  payload: EconomicsRequest
+): Promise<EconomicsResult> {
+  return apiFetch<EconomicsResult>(`/api/wells/${id}/analysis/economics`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function downloadReportPdf(id: number): Promise<void> {
+  const res = await fetch(`${API_BASE}/api/wells/${id}/analysis/report.pdf`, {
+    headers: { "X-API-Key": API_KEY },
+  });
+  if (!res.ok) {
+    throw new Error(`API ${res.status}: no se pudo generar el reporte`);
+  }
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `aerolift_well_${id}.pdf`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+export async function postOilIpr(
+  id: number,
+  qoTestStbD: number,
+  pwfTestPsia: number
+): Promise<OilIprResult> {
+  return apiFetch<OilIprResult>(`/api/wells/${id}/analysis/oil-ipr`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ qo_test_stb_d: qoTestStbD, pwf_test_psia: pwfTestPsia }),
+  });
 }
 
 export async function getAlerts(): Promise<Alert[]> {

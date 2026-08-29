@@ -4,8 +4,8 @@ import { useEffect, useState, useCallback } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import dynamic from "next/dynamic";
-import { getWell, getLoading, getForecast, getCharts, getTwins, getMlStatus, trainTwin } from "@/lib/api";
-import type { Well, LoadingResult, ForecastResult, ChartsResult, Twin, MlStatus } from "@/lib/types";
+import { getWell, getLoading, getForecast, getCharts, getTraverse, getCalibration, postEconomics, postOilIpr, downloadReportPdf, getTwins, getMlStatus, trainTwin } from "@/lib/api";
+import type { Well, LoadingResult, ForecastResult, ChartsResult, TraverseResult, CalibrationResult, EconomicsResult, OilIprResult, Twin, MlStatus } from "@/lib/types";
 
 const Plot = dynamic(() => import("react-plotly.js"), { ssr: false });
 
@@ -32,15 +32,42 @@ const STATUS_TEXT: Record<string, string> = {
   red: "text-red-600",
 };
 
-type TabKey = "resumen" | "forecast" | "carga" | "sensibilidad" | "twin";
+type TabKey =
+  | "resumen"
+  | "forecast"
+  | "carga"
+  | "sensibilidad"
+  | "traverse"
+  | "nodal"
+  | "calibracion"
+  | "economia"
+  | "ingenieria"
+  | "petroleo"
+  | "twin";
 
-const TABS: { key: TabKey; label: string }[] = [
-  { key: "resumen", label: "Resumen" },
-  { key: "forecast", label: "Pronostico" },
-  { key: "carga", label: "Carga liquida" },
-  { key: "sensibilidad", label: "Sensibilidad" },
-  { key: "twin", label: "Digital Twin" },
-];
+function figureTabs(well: Well, isPro: boolean): { key: TabKey; label: string }[] {
+  const tabs: { key: TabKey; label: string }[] = [
+    { key: "resumen", label: "Resumen" },
+    { key: "forecast", label: "Pronostico" },
+    { key: "carga", label: "Carga liquida" },
+    { key: "sensibilidad", label: "Sensibilidad" },
+    { key: "traverse", label: "Traverse" },
+  ];
+  if (isPro) {
+    tabs.push({ key: "nodal", label: "Nodal" });
+    tabs.push({ key: "calibracion", label: "Calibracion" });
+    tabs.push({ key: "economia", label: "Economia" });
+  }
+  tabs.push({ key: "ingenieria", label: "Ingenieria" });
+  if (well.well_type === "oil") {
+    tabs.push({ key: "petroleo", label: "Petroleo" });
+  }
+  tabs.push({ key: "twin", label: "Digital Twin" });
+  return tabs;
+}
+
+const inputCls =
+  "w-full px-2 py-1.5 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400";
 
 export default function WellDetailPage() {
   const params = useParams();
@@ -50,6 +77,8 @@ export default function WellDetailPage() {
   const [loading, setLoading] = useState<LoadingResult | null>(null);
   const [forecast, setForecast] = useState<ForecastResult | null>(null);
   const [charts, setCharts] = useState<ChartsResult | null>(null);
+  const [traverse, setTraverse] = useState<TraverseResult | null>(null);
+  const [calibration, setCalibration] = useState<CalibrationResult | null>(null);
   const [twins, setTwins] = useState<Twin[]>([]);
   const [mlStatus, setMlStatus] = useState<MlStatus | null>(null);
   const [twinBusy, setTwinBusy] = useState(false);
@@ -57,6 +86,26 @@ export default function WellDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [loadingState, setLoadingState] = useState(true);
   const [tab, setTab] = useState<TabKey>("resumen");
+  const [pdfBusy, setPdfBusy] = useState(false);
+  const [pdfMsg, setPdfMsg] = useState<string | null>(null);
+
+  const [qOverride, setQOverride] = useState<number | null>(null);
+  const [qDraft, setQDraft] = useState("");
+
+  const [econ, setEcon] = useState<EconomicsResult | null>(null);
+  const [econBusy, setEconBusy] = useState(false);
+  const [econMsg, setEconMsg] = useState<string | null>(null);
+  const [intervention, setIntervention] = useState("velocity_string");
+  const [targetTubing, setTargetTubing] = useState("");
+  const [targetPwh, setTargetPwh] = useState("");
+  const [gasPrice, setGasPrice] = useState("3.5");
+  const [costUsd, setCostUsd] = useState("");
+
+  const [oilIpr, setOilIpr] = useState<OilIprResult | null>(null);
+  const [oilBusy, setOilBusy] = useState(false);
+  const [oilMsg, setOilMsg] = useState<string | null>(null);
+  const [qoTest, setQoTest] = useState("");
+  const [pwfTest, setPwfTest] = useState("");
 
   const refreshTwinCb = useCallback(async () => {
     const [t, s] = await Promise.all([getTwins(wellId), getMlStatus(wellId)]);
@@ -78,20 +127,39 @@ export default function WellDetailPage() {
     }
   }
 
+  const loadRateData = useCallback(
+    async (q?: number) => {
+      const prm = q ?? undefined;
+      try {
+        const [l, c, t] = await Promise.all([
+          getLoading(wellId, prm),
+          getCharts(wellId, prm).catch(() => null),
+          getTraverse(wellId, prm).catch(() => null),
+        ]);
+        setLoading(l);
+        setCharts(c);
+        setTraverse(t);
+      } catch {
+        /* keep old values */
+      }
+    },
+    [wellId]
+  );
+
   useEffect(() => {
     async function load() {
       try {
-        const [w, l, f] = await Promise.all([
+        const [w, f] = await Promise.all([
           getWell(wellId),
-          getLoading(wellId),
-          getForecast(wellId),
+          getForecast(wellId).catch(() => null),
         ]);
         setWell(w);
-        setLoading(l);
         setForecast(f);
-        getCharts(wellId)
-          .then(setCharts)
-          .catch(() => setCharts(null));
+        setQDraft(w.q_gas_nominal_mscfd ? String(w.q_gas_nominal_mscfd) : "");
+        getCalibration(wellId)
+          .then(setCalibration)
+          .catch(() => setCalibration(null));
+        await loadRateData(w.q_gas_nominal_mscfd ?? undefined);
         refreshTwinCb().catch(() => undefined);
       } catch (e: unknown) {
         setError(e instanceof Error ? e.message : "Error desconocido");
@@ -100,7 +168,7 @@ export default function WellDetailPage() {
       }
     }
     load();
-  }, [wellId, refreshTwinCb]);
+  }, [wellId, refreshTwinCb, loadRateData]);
 
   if (loadingState) {
     return (
@@ -132,6 +200,117 @@ export default function WellDetailPage() {
     .filter((r) => r.status === "loaded" || r.status === "loaded_forecast")
     .map((r) => r.q_mscfd);
 
+  const TABS = figureTabs(well, true);
+
+  async function handlePdf() {
+    setPdfBusy(true);
+    setPdfMsg(null);
+    try {
+      await downloadReportPdf(wellId);
+      setPdfMsg("Reporte PDF generado.");
+    } catch (e: unknown) {
+      setPdfMsg(e instanceof Error ? e.message : "No se pudo generar el PDF");
+    } finally {
+      setPdfBusy(false);
+    }
+  }
+
+  function applyRate() {
+    const n = parseFloat(qDraft);
+    if (!isNaN(n) && n > 0) {
+      setQOverride(n);
+      loadRateData(n);
+    } else {
+      setQOverride(null);
+      loadRateData(well!.q_gas_nominal_mscfd ?? undefined);
+    }
+  }
+
+  function resetRate() {
+    setQDraft(well!.q_gas_nominal_mscfd ? String(well!.q_gas_nominal_mscfd) : "");
+    setQOverride(null);
+    loadRateData(well!.q_gas_nominal_mscfd ?? undefined);
+  }
+
+  async function handleEconomics() {
+    if (!forecast?.history || forecast.history.length < 2) {
+      setEconMsg("Se requiere pronostico con historial p/z para evaluar.");
+      return;
+    }
+    setEconBusy(true);
+    setEconMsg(null);
+    try {
+      const payload = {
+        gp_mmscf: forecast.history.map((r) => r.Gp),
+        p_psia: forecast.history.map((r) => r.Pr),
+        intervention,
+        target_tubing_id_in: intervention === "velocity_string" && targetTubing ? parseFloat(targetTubing) : null,
+        target_p_wh_psia: intervention === "compression" && targetPwh ? parseFloat(targetPwh) : null,
+        gas_price_usd_mcf: gasPrice ? parseFloat(gasPrice) : 3.5,
+        cost_usd: costUsd ? parseFloat(costUsd) : null,
+        time_step_days: 30,
+      };
+      const res = await postEconomics(wellId, payload);
+      setEcon(res);
+      setEconMsg(null);
+    } catch (e: unknown) {
+      setEconMsg(e instanceof Error ? e.message : "Error al evaluar economia");
+    } finally {
+      setEconBusy(false);
+    }
+  }
+
+  async function handleOilIpr() {
+    const qo = parseFloat(qoTest);
+    const pwf = parseFloat(pwfTest);
+    if (isNaN(qo) || qo <= 0 || isNaN(pwf) || pwf <= 0) {
+      setOilMsg("Ingresa qo test y Pwf test validos.");
+      return;
+    }
+    setOilBusy(true);
+    setOilMsg(null);
+    try {
+      setOilIpr(await postOilIpr(wellId, qo, pwf));
+    } catch (e: unknown) {
+      setOilMsg(e instanceof Error ? e.message : "Error al calcular IPR de petroleo");
+    } finally {
+      setOilBusy(false);
+    }
+  }
+
+  function renderFigure(fig: { data: unknown[]; layout: Record<string, unknown> } | null | undefined, height = 360) {
+    if (!fig) return null;
+    return (
+      <Plot
+        data={fig.data as never[]}
+        layout={{
+          autosize: true,
+          height,
+          margin: { l: 50, r: 20, t: 20, b: 40 },
+          ...(fig.layout as object),
+        }}
+        config={{ responsive: true, displayModeBar: false }}
+        style={{ width: "100%" }}
+      />
+    );
+  }
+
+  function figBlock(key: string, label: string) {
+    if (!charts || !charts[key as keyof ChartsResult]) return null;
+    return (
+      <div key={key} className="bg-white rounded-lg border p-4">
+        <h2 className="font-semibold text-gray-800 mb-3">{label}</h2>
+        {renderFigure(charts[key as keyof ChartsResult] as never)}
+      </div>
+    );
+  }
+
+  const econFormat = new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 0,
+  });
+
   return (
     <main className="min-h-screen bg-gray-50">
       <div className="max-w-6xl mx-auto px-4 py-6">
@@ -145,19 +324,55 @@ export default function WellDetailPage() {
             <span className={`text-lg font-semibold ${STATUS_TEXT[severityColor] || STATUS_TEXT.green}`}>
               {SEVERITY_LABEL[loading.severity] || "Estable"}
             </span>
+            <button
+              onClick={handlePdf}
+              disabled={pdfBusy}
+              className="ml-auto px-3 py-1.5 text-sm rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-100 disabled:opacity-50 transition"
+            >
+              {pdfBusy ? "Generando..." : "Reporte PDF"}
+            </button>
           </div>
           <p className="text-sm text-gray-500">
             ID {well.id} &middot; {well.well_type === "gas" ? "Gas" : "Petroleo"} &middot; TVD{" "}
             {well.tvd_ft} ft &middot; {well.tubing_id_in}&quot;
           </p>
+          {pdfMsg && <p className="text-xs text-gray-500 mt-1">{pdfMsg}</p>}
         </header>
 
-        <nav className="flex gap-1 mb-6 border-b border-gray-200">
+        <div className="flex flex-wrap items-center gap-3 mb-4 p-3 bg-white rounded-lg border">
+          <label className="text-sm font-medium text-gray-600">Tasa de gas q (Mscf/D):</label>
+          <input
+            type="number"
+            value={qDraft}
+            onChange={(e) => setQDraft(e.target.value)}
+            className={`${inputCls} w-32`}
+            placeholder="nominal"
+          />
+          <button
+            onClick={applyRate}
+            className="px-3 py-1.5 text-sm rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition"
+          >
+            Aplicar
+          </button>
+          <button
+            onClick={resetRate}
+            className="px-3 py-1.5 text-sm rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-100 transition"
+          >
+            Reset
+          </button>
+          {qOverride !== null && (
+            <span className="text-xs text-blue-700 bg-blue-50 border border-blue-200 rounded px-2 py-1">
+              Analizando a {qOverride.toFixed(0)} Mscf/D
+            </span>
+          )}
+        </div>
+
+        <nav className="flex gap-1 mb-6 border-b border-gray-200 overflow-x-auto">
           {TABS.map((t) => (
             <button
               key={t.key}
               onClick={() => setTab(t.key)}
-              className={`px-4 py-2 -mb-px text-sm font-medium border-b-2 transition ${
+              className={`px-4 py-2 -mb-px text-sm font-medium border-b-2 whitespace-nowrap transition ${
                 tab === t.key
                   ? "border-blue-600 text-blue-600"
                   : "border-transparent text-gray-500 hover:text-gray-700"
@@ -312,24 +527,7 @@ export default function WellDetailPage() {
 
         {tab === "carga" && (
           <div className="space-y-6">
-            {(charts ? [["Envolvente operativa", "operating_envelope"] as const] : []).map(
-              ([label, key]) => (
-                <div key={key} className="bg-white rounded-lg border p-4">
-                  <h2 className="font-semibold text-gray-800 mb-3">{label}</h2>
-                  <Plot
-                    data={charts![key].data as never[]}
-                    layout={{
-                      autosize: true,
-                      height: 380,
-                      margin: { l: 50, r: 20, t: 20, b: 40 },
-                      ...(charts![key].layout as object),
-                    }}
-                    config={{ responsive: true, displayModeBar: false }}
-                    style={{ width: "100%" }}
-                  />
-                </div>
-              )
-            )}
+            {figBlock("operating_envelope", "Envolvente operativa")}
             {!charts && (
               <div className="bg-white rounded-lg border p-6 text-center text-gray-400 text-sm">
                 Graficas no disponibles para este pozo.
@@ -340,33 +538,432 @@ export default function WellDetailPage() {
 
         {tab === "sensibilidad" && (
           <div className="space-y-6">
-            {(charts
-              ? [
-                  ["vcrit vs presion", "vcrit_vs_pressure"],
-                  ["vcrit vs temperatura", "vcrit_vs_temperature"],
-                  ["vcrit vs diametro", "vcrit_vs_diameter"],
-                ] as const
-              : []
-            ).map(([label, key]) => (
-              <div key={key} className="bg-white rounded-lg border p-4">
-                <h2 className="font-semibold text-gray-800 mb-3">{label}</h2>
-                <Plot
-                  data={charts![key].data as never[]}
-                  layout={{
-                    autosize: true,
-                    height: 360,
-                    margin: { l: 50, r: 20, t: 20, b: 40 },
-                    ...(charts![key].layout as object),
-                  }}
-                  config={{ responsive: true, displayModeBar: false }}
-                  style={{ width: "100%" }}
-                />
-              </div>
-            ))}
+            {[["vcrit vs presion", "vcrit_vs_pressure"],
+              ["vcrit vs temperatura", "vcrit_vs_temperature"],
+              ["vcrit vs diametro", "vcrit_vs_diameter"]].map(([label, key]) =>
+                figBlock(key, label)
+            )}
             {!charts && (
               <div className="bg-white rounded-lg border p-6 text-center text-gray-400 text-sm">
                 Graficas no disponibles para este pozo.
               </div>
+            )}
+          </div>
+        )}
+
+        {tab === "traverse" && traverse && (
+          <div className="space-y-6">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 text-sm mb-2">
+              <div className="bg-white rounded-lg border p-3">
+                <span className="text-gray-400">BHP dry gas</span>
+                <p className="font-mono font-medium">{traverse.bhfp_dry_gas_psia.toFixed(0)} psia</p>
+              </div>
+              <div className="bg-white rounded-lg border p-3">
+                <span className="text-gray-400">BHP Beggs-Brill</span>
+                <p className="font-mono font-medium">
+                  {traverse.bhfp_beggs_brill_psia !== null
+                    ? `${traverse.bhfp_beggs_brill_psia.toFixed(0)} psia`
+                    : "n/a"}
+                </p>
+              </div>
+            </div>
+
+            <div className="bg-white rounded-lg border p-4">
+              <h2 className="font-semibold text-gray-800 mb-3">Presion vs profundidad</h2>
+              <Plot
+                data={[
+                  {
+                    x: traverse.P_dry_gas_psia,
+                    y: traverse.depths_ft,
+                    type: "scatter",
+                    mode: "lines",
+                    name: "Dry gas",
+                    line: { color: "#2563eb" },
+                  },
+                  ...(traverse.P_beggs_brill_psia
+                    ? [
+                        {
+                          x: traverse.P_beggs_brill_psia,
+                          y: traverse.depths_ft,
+                          type: "scatter",
+                          mode: "lines",
+                          name: "Beggs-Brill",
+                          line: { color: "#db2777", dash: "dash" },
+                        } as never,
+                      ]
+                    : []),
+                ]}
+                layout={{
+                  autosize: true,
+                  height: 420,
+                  margin: { l: 50, r: 20, t: 20, b: 40 },
+                  xaxis: { title: "Presion (psia)", autorange: "reversed" },
+                  yaxis: { title: "Profundidad (ft)", autorange: "reversed" },
+                  legend: { orientation: "h", y: 1.1 },
+                }}
+                config={{ responsive: true, displayModeBar: false }}
+                style={{ width: "100%" }}
+              />
+            </div>
+
+            {traverse.bb_flow_patterns && (
+              <div className="bg-white rounded-lg border p-4">
+                <h2 className="font-semibold text-gray-800 mb-3">Patrones de flujo (Beggs-Brill)</h2>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
+                  {Object.entries(traverse.bb_flow_patterns).map(([k, v]) => (
+                    <div key={k}>
+                      <span className="text-gray-400 text-xs">{k}</span>
+                      <p className="font-mono text-gray-800">{v}%</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {tab === "traverse" && !traverse && (
+          <div className="bg-white rounded-lg border p-6 text-center text-gray-400 text-sm">
+            Traverse no disponible para este pozo.
+          </div>
+        )}
+
+        {tab === "nodal" && (
+          <div className="space-y-6">
+            {figBlock("pz", "Balance de materiales p/z")}
+            {figBlock("deliverability_loglog", "Deliverability (log-log)")}
+            {!charts?.pz && !charts?.deliverability_loglog && (
+              <div className="bg-white rounded-lg border p-6 text-center text-gray-400 text-sm">
+                Nodal no disponible para este pozo.
+              </div>
+            )}
+          </div>
+        )}
+
+        {tab === "calibracion" && calibration && (
+          <div className="space-y-6">
+            {calibration.note && (
+              <div className="px-4 py-3 bg-amber-50 border border-amber-300 rounded-lg text-sm text-amber-800">
+                {calibration.note}
+              </div>
+            )}
+            {calibration.n_points > 0 && (
+              <>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 text-sm">
+                  <div className="bg-white rounded-lg border p-3">
+                    <span className="text-gray-400">Puntos</span>
+                    <p className="font-mono font-medium">{calibration.n_points}</p>
+                  </div>
+                  <div className="bg-white rounded-lg border p-3">
+                    <span className="text-gray-400">Bias</span>
+                    <p className="font-mono font-medium">
+                      {calibration.bias_pct !== null
+                        ? `${calibration.bias_pct.toFixed(1)}%`
+                        : "n/a"}
+                    </p>
+                  </div>
+                  <div className="bg-white rounded-lg border p-3">
+                    <span className="text-gray-400">MAE</span>
+                    <p className="font-mono font-medium">
+                      {calibration.mae_pct !== null
+                        ? `${calibration.mae_pct.toFixed(1)}%`
+                        : "n/a"}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="bg-white rounded-lg border p-4">
+                  <h2 className="font-semibold text-gray-800 mb-3">Medido vs predicho</h2>
+                  <Plot
+                    data={[
+                      {
+                        x: calibration.points
+                          .filter((p) => p.pwf_predicted_psia !== null)
+                          .map((p) => p.pwf_measured_psia),
+                        y: calibration.points
+                          .filter((p) => p.pwf_predicted_psia !== null)
+                          .map((p) => p.pwf_predicted_psia as number),
+                        type: "scatter",
+                        mode: "markers",
+                        name: "Predicciones",
+                        marker: { color: "#2563eb", size: 7 },
+                      },
+                      {
+                        x: [
+                          Math.min(...calibration.points.map((p) => p.pwf_measured_psia)) * 0.9,
+                          Math.max(...calibration.points.map((p) => p.pwf_measured_psia)) * 1.1,
+                        ],
+                        y: [
+                          Math.min(...calibration.points.map((p) => p.pwf_measured_psia)) * 0.9,
+                          Math.max(...calibration.points.map((p) => p.pwf_measured_psia)) * 1.1,
+                        ],
+                        type: "scatter",
+                        mode: "lines",
+                        name: "1:1",
+                        line: { color: "#ef4444", dash: "dash" },
+                      },
+                    ]}
+                    layout={{
+                      autosize: true,
+                      height: 380,
+                      margin: { l: 50, r: 20, t: 20, b: 40 },
+                      xaxis: { title: "Pwf medido (psia)" },
+                      yaxis: { title: "Pwf predicho (psia)" },
+                      legend: { orientation: "h", y: 1.1 },
+                    }}
+                    config={{ responsive: true, displayModeBar: false }}
+                    style={{ width: "100%" }}
+                  />
+                </div>
+
+                <div className="bg-white rounded-lg border p-4">
+                  <h2 className="font-semibold text-gray-800 mb-3">Delta vs fecha</h2>
+                  <Plot
+                    data={[
+                      {
+                        x: calibration.points.map((p) => p.date),
+                        y: calibration.points.map((p) => p.delta_pct),
+                        type: "bar",
+                        name: "Delta (%)",
+                        marker: { color: "#f59e0b" },
+                      },
+                    ]}
+                    layout={{
+                      autosize: true,
+                      height: 300,
+                      margin: { l: 50, r: 20, t: 20, b: 40 },
+                      xaxis: { title: "Fecha" },
+                      yaxis: { title: "Desvio (%)" },
+                    }}
+                    config={{ responsive: true, displayModeBar: false }}
+                    style={{ width: "100%" }}
+                  />
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
+        {tab === "calibracion" && !calibration && (
+          <div className="bg-white rounded-lg border p-6 text-center text-gray-400 text-sm">
+            Calibracion no disponible para este pozo.
+          </div>
+        )}
+
+        {tab === "economia" && (
+          <div className="space-y-6">
+            <div className="bg-white rounded-lg border p-4">
+              <h2 className="font-semibold text-gray-800 mb-3">Evaluacion de intervencion</h2>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 text-sm">
+                <div>
+                  <span className="text-gray-400 text-xs">Intervencion</span>
+                  <select
+                    value={intervention}
+                    onChange={(e) => setIntervention(e.target.value)}
+                    className={inputCls}
+                  >
+                    <option value="velocity_string">Velocity string</option>
+                    <option value="compression">Compresion</option>
+                  </select>
+                </div>
+                {intervention === "velocity_string" ? (
+                  <div>
+                    <span className="text-gray-400 text-xs">Target tubing ID (in)</span>
+                    <input
+                      type="number"
+                      value={targetTubing}
+                      onChange={(e) => setTargetTubing(e.target.value)}
+                      className={inputCls}
+                      placeholder="ej. 1.9"
+                    />
+                  </div>
+                ) : (
+                  <div>
+                    <span className="text-gray-400 text-xs">Target Pwh (psia)</span>
+                    <input
+                      type="number"
+                      value={targetPwh}
+                      onChange={(e) => setTargetPwh(e.target.value)}
+                      className={inputCls}
+                      placeholder="ej. 100"
+                    />
+                  </div>
+                )}
+                <div>
+                  <span className="text-gray-400 text-xs">Precio gas ($/Mscf)</span>
+                  <input
+                    type="number"
+                    value={gasPrice}
+                    onChange={(e) => setGasPrice(e.target.value)}
+                    className={inputCls}
+                  />
+                </div>
+                <div>
+                  <span className="text-gray-400 text-xs">Costo ($, opcional)</span>
+                  <input
+                    type="number"
+                    value={costUsd}
+                    onChange={(e) => setCostUsd(e.target.value)}
+                    className={inputCls}
+                    placeholder="default del catalogo"
+                  />
+                </div>
+              </div>
+              <button
+                onClick={handleEconomics}
+                disabled={econBusy || !forecast}
+                className="mt-4 px-4 py-2 text-sm rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 transition"
+              >
+                {econBusy ? "Evaluando..." : "Evaluar"}
+              </button>
+              {econMsg && <p className="text-sm text-gray-600 mt-2">{econMsg}</p>}
+            </div>
+
+            {econ && (
+              <>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm">
+                  {[
+                    ["Intervencion", econ.label],
+                    ["Gas incremental", `${econ.incremental_gas_mmscf.toFixed(1)} MMscf`],
+                    ["Ingreso bruto", econFormat.format(econ.gross_revenue_usd)],
+                    ["NPV", econFormat.format(econ.npv_usd)],
+                    ["ROI", econ.roi_pct !== null ? `${econ.roi_pct.toFixed(0)}%` : "n/a"],
+                    ["Payback", econ.payback_months !== null ? `${econ.payback_months} meses` : "n/a"],
+                    ["Costo", econFormat.format(econ.cost_usd)],
+                    ["Extension de vida", econ.life_extension_days !== null ? `${econ.life_extension_days.toFixed(0)} dias` : "n/a"],
+                  ].map(([label, value]) => (
+                    <div key={label} className="bg-white rounded-lg border p-3">
+                      <span className="text-gray-400 text-xs">{label}</span>
+                      <p className="font-mono font-medium">{value}</p>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="bg-white rounded-lg border p-4">
+                  <h2 className="font-semibold text-gray-800 mb-3">Produccion acumulada</h2>
+                  <Plot
+                    data={[
+                      {
+                        x: ["Base", "Con " + econ.intervention],
+                        y: [econ.base_cum_mmscf, econ.intervention_cum_mmscf],
+                        type: "bar",
+                        marker: { color: ["#94a3b8", "#2563eb"] },
+                      },
+                    ]}
+                    layout={{
+                      autosize: true,
+                      height: 300,
+                      margin: { l: 50, r: 20, t: 20, b: 40 },
+                      yaxis: { title: "Producido (MMscf)" },
+                    }}
+                    config={{ responsive: true, displayModeBar: false }}
+                    style={{ width: "100%" }}
+                  />
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
+        {tab === "ingenieria" && (
+          <div className="space-y-6">
+            <h2 className="text-lg font-semibold text-gray-800">Ingenieria de fondo de pozo</h2>
+            {[
+              ["Perfil de temperatura", "temperature_profile"],
+              ["Comparacion de modelos de carga", "multi_model_comparison"],
+              ["Envolvente de Belfroid", "belfroid_envelope"],
+              ["Velocidad erosional (API RP 14E)", "erosional_velocity"],
+              ["Curva de hidratos", "hydrate_curve"],
+              ["Curvas tipo de declinacion", "decline_type_curves"],
+            ].map(([label, key]) => figBlock(key, label))}
+            {!charts && (
+              <div className="bg-white rounded-lg border p-6 text-center text-gray-400 text-sm">
+                Figuras no disponibles para este pozo.
+              </div>
+            )}
+          </div>
+        )}
+
+        {tab === "petroleo" && (
+          <div className="space-y-6">
+            <div className="bg-white rounded-lg border p-4">
+              <h2 className="font-semibold text-gray-800 mb-3">IPR de petroleo (Vogel)</h2>
+              <div className="grid grid-cols-2 gap-4 text-sm">
+                <div>
+                  <span className="text-gray-400 text-xs">qo test (STB/D)</span>
+                  <input
+                    type="number"
+                    value={qoTest}
+                    onChange={(e) => setQoTest(e.target.value)}
+                    className={inputCls}
+                  />
+                </div>
+                <div>
+                  <span className="text-gray-400 text-xs">Pwf test (psia)</span>
+                  <input
+                    type="number"
+                    value={pwfTest}
+                    onChange={(e) => setPwfTest(e.target.value)}
+                    className={inputCls}
+                  />
+                </div>
+              </div>
+              <button
+                onClick={handleOilIpr}
+                disabled={oilBusy}
+                className="mt-4 px-4 py-2 text-sm rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 transition"
+              >
+                {oilBusy ? "Calculando..." : "Calcular"}
+              </button>
+              {oilMsg && <p className="text-sm text-gray-600 mt-2">{oilMsg}</p>}
+            </div>
+
+            {oilIpr && (
+              <>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm">
+                  {[
+                    ["qo max", `${oilIpr.qo_max_stb_d.toFixed(0)} STB/D`],
+                    ["Pb", oilIpr.p_bubble_psia !== null ? `${oilIpr.p_bubble_psia.toFixed(0)} psia` : "n/a"],
+                    ["Rs", oilIpr.rs_at_p_res_scf_stb !== null ? `${oilIpr.rs_at_p_res_scf_stb.toFixed(0)} scf/STB` : "n/a"],
+                    ["mu_o", oilIpr.mu_o_cp !== null ? `${oilIpr.mu_o_cp.toFixed(2)} cp` : "n/a"],
+                  ].map(([label, value]) => (
+                    <div key={label} className="bg-white rounded-lg border p-3">
+                      <span className="text-gray-400 text-xs">{label}</span>
+                      <p className="font-mono font-medium">{value}</p>
+                    </div>
+                  ))}
+                </div>
+                {oilIpr.warnings.length > 0 && (
+                  <div className="px-4 py-3 bg-amber-50 border border-amber-300 rounded-lg text-sm text-amber-800">
+                    {oilIpr.warnings.join("; ")}
+                  </div>
+                )}
+                {oilIpr.curve.length > 0 && (
+                  <div className="bg-white rounded-lg border p-4">
+                    <h2 className="font-semibold text-gray-800 mb-3">Curva de afluencia (Vogel)</h2>
+                    <Plot
+                      data={[
+                        {
+                          x: oilIpr.curve.map((pt) => pt.qo_stb_d),
+                          y: oilIpr.curve.map((pt) => pt.pwf_psia),
+                          type: "scatter",
+                          mode: "lines",
+                          line: { color: "#2563eb" },
+                        },
+                      ]}
+                      layout={{
+                        autosize: true,
+                        height: 360,
+                        margin: { l: 50, r: 20, t: 20, b: 40 },
+                        xaxis: { title: "qo (STB/D)", autorange: "reversed" },
+                        yaxis: { title: "Pwf (psia)" },
+                      }}
+                      config={{ responsive: true, displayModeBar: false }}
+                      style={{ width: "100%" }}
+                    />
+                  </div>
+                )}
+              </>
             )}
           </div>
         )}
