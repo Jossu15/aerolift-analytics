@@ -14,13 +14,14 @@
 #   apague por idle.)
 #
 # Uso:
-#   & scripts\start-stack-win.ps1                  # Once: arranca y verifica
-#   & scripts\start-stack-win.ps1 -OpenBrowser     # ... y abre el navegador
-#   & scripts\start-stack-win.ps1 -Watch [3600]    # guardian por N segundos
+#   & scripts\start-stack-win.ps1                  # Once: arranca, verifica y abre el navegador
+#   & scripts\start-stack-win.ps1 -NoBrowser       # ... sin abrir el navegador
+#   & scripts\start-stack-win.ps1 -Watch [3600]    # guardian por N segundos (tambien abre el navegador al arrancar)
 #   Ctrl+C para salir del guardian (la sesion keepalive sigue ~6 h mas).
 param(
     [long]$WatchSeconds = 0,
     [int]$ProbeInterval = 5,
+    [switch]$NoBrowser,
     [switch]$OpenBrowser
 )
 
@@ -77,7 +78,8 @@ Write-Host "[start-stack] estado:"
 Show-Health $ok
 $allOk = @($ok | Where-Object {$_ -eq $false}).Count -eq 0
 
-if ($allOk -and $OpenBrowser) {
+$shouldOpen = $allOk -and -not $NoBrowser
+if ($shouldOpen) {
     Start-Process "http://localhost:3000/"
     Write-Host "[start-stack] abriendo http://localhost:3000/"
 }

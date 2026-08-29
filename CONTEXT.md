@@ -545,8 +545,9 @@ frontend  → Next.js → http://localhost:3000
   2. `vmIdleTimeout=-1` en `C:\Users\Lenovo\.wslconfig` (nunca apagar la VM
      por idle).
   3. En modo guardian (`-Watch N`) relanza `docker compose up -d` si algún
-     puerto llega a caer y re-crea la sesión keepalive si muere. Modo `-Once`
-     arranca, verifica los 3 puertos y abre el navegador con `-OpenBrowser`.
+     puerto llega a caer y re-crea la sesión keepalive si muere. Al arrancar
+     con los 3 puertos OK **abre el navegador** automáticamente
+     (`http://localhost:3000/`); suprimir con `-NoBrowser`.
 - `scripts/portproxy-win.ps1` queda como legacy de la era NAT (reglas `netsh
   interface portproxy` → IP de la VM); **ya no es necesario** con mirrored.
 
