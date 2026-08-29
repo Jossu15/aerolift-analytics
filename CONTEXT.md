@@ -532,13 +532,21 @@ frontend  → Next.js → http://localhost:3000
      "Failed to fetch" tenía dos causas: CORS y `::1`; las dos corregidas).
 - Windows Firewall: reglas inbound `WSL-Aerolift-TCP-3000/8000/8501` creadas
   (permiten el tráfico hacia la VM en mirrored).
-- **Caveat ambiental**: el hypervisor suspende la VM WSL por ráfagas (snapd
-  entra en "standby" y systemd detiene `docker.service` cada ~35-45 s) lo que
-  parpadea los puertos (~10 s caídos). El acceso se restablece solo con
-  `scripts/start-stack-win.ps1`, que levanta el stack (sin privilegios, usa la
-  socket-activation) y en modo guardian (`-Watch 3600`) relanza `docker
-  compose up -d` en cuanto detecta un puerto caído. Modo `-Once` arranca,
-  verifica los 3 puertos y abre el navegador con `-OpenBrowser`.
+- **Caveat ambiental (causa real de las caídas)**: WSL termina la instancia
+  cuando quedan ~15-60 s sin procesos **cliente** `wsl.exe` activos (el idle
+  de la instancia; lo de docker/containers dentro de la VM no cuenta como
+  actividad y las sondas TCP tamca). Al terminar la última invocación, la
+  instancia (y su systemd/docker) se reinicia por completo. En las bitácoras
+  aparece `InitTerminateInstanceInternal ... calling reboot(RB_POWER_OFF)` y
+  el mensaje de snapd `standby.go` es solo un monitor, no la causa.
+  Mitigación sin privilegios (`scripts/start-stack-win.ps1`):
+  1. Mantiene una **sesión WSL persistente** (`wsl -e /usr/bin/sleep 21600`):
+     mientras vive, la instancia no se considera idle y el stack no se cae.
+  2. `vmIdleTimeout=-1` en `C:\Users\Lenovo\.wslconfig` (nunca apagar la VM
+     por idle).
+  3. En modo guardian (`-Watch N`) relanza `docker compose up -d` si algún
+     puerto llega a caer y re-crea la sesión keepalive si muere. Modo `-Once`
+     arranca, verifica los 3 puertos y abre el navegador con `-OpenBrowser`.
 - `scripts/portproxy-win.ps1` queda como legacy de la era NAT (reglas `netsh
   interface portproxy` → IP de la VM); **ya no es necesario** con mirrored.
 
