@@ -102,7 +102,7 @@ def plot_operating_envelope(p_res, t_res, gamma_g, tubing_id,
 
 def plot_vcrit_vs_pressure(t_res, gamma_g, tubing_id, liquid_type='water',
                            method='turner'):
-    fig = make_subplots(rows=1, cols=2,
+    fig = make_subplots(rows=1, cols=2, vertical_spacing=0.15,
                         subplot_titles=("v_crit vs P", "q_crit vs P"))
     pressures, v_crits, q_crits = [], [], []
     for p in range(100, 6000, 50):
@@ -131,14 +131,14 @@ def plot_vcrit_vs_pressure(t_res, gamma_g, tubing_id, liquid_type='water',
     fig.update_xaxes(title_text="P (psia)", row=1, col=2)
     fig.update_yaxes(title_text="v_crit (ft/s)", row=1, col=1)
     fig.update_yaxes(title_text="q_crit (Mscf/D)", row=1, col=2)
-    fig.update_layout(title="Sensibilidad de v_crit y q_crit vs Presion",
-                      template=_TEMPLATE, height=400, showlegend=False)
+    fig.update_layout(template=_TEMPLATE, height=400, showlegend=False,
+                      margin=dict(l=50, r=20, t=50, b=40))
     return fig
 
 
 def plot_vcrit_vs_temperature(p, gamma_g, tubing_id, liquid_type='water',
                               method='turner'):
-    fig = make_subplots(rows=1, cols=2,
+    fig = make_subplots(rows=1, cols=2, vertical_spacing=0.15,
                         subplot_titles=("v_crit vs T", "sigma vs T"))
     temps, v_crits, sigmas = [], [], []
     for t_f in range(40, 400, 5):
@@ -165,8 +165,8 @@ def plot_vcrit_vs_temperature(p, gamma_g, tubing_id, liquid_type='water',
     fig.update_xaxes(title_text="T (F)", row=1, col=2)
     fig.update_yaxes(title_text="v_crit (ft/s)", row=1, col=1)
     fig.update_yaxes(title_text="sigma (dynes/cm)", row=1, col=2)
-    fig.update_layout(title="Sensibilidad vs Temperatura",
-                      template=_TEMPLATE, height=400, showlegend=False)
+    fig.update_layout(template=_TEMPLATE, height=400, showlegend=False,
+                      margin=dict(l=50, r=20, t=50, b=40))
     return fig
 
 
@@ -190,7 +190,7 @@ def plot_vcrit_vs_diameter(p, t_res, gamma_g, liquid_type='water',
             q_crits.append(q)
         except Exception:
             v_crits.append(0); q_crits.append(0)
-    fig = make_subplots(rows=1, cols=2,
+    fig = make_subplots(rows=1, cols=2, vertical_spacing=0.15,
                         subplot_titles=("v_crit vs D (constante)", "q_crit vs D (constante)"))
     fig.add_trace(go.Bar(x=[str(d)+'"' for d in diameters], y=v_crits,
                          marker_color='#1f77b4'), row=1, col=1)
@@ -198,8 +198,8 @@ def plot_vcrit_vs_diameter(p, t_res, gamma_g, liquid_type='water',
                          marker_color='#d62728'), row=1, col=2)
     fig.update_yaxes(title_text="v_crit (ft/s)", row=1, col=1)
     fig.update_yaxes(title_text="q_crit (Mscf/D)", row=1, col=2)
-    fig.update_layout(title="Sensibilidad vs Diametro de Tuberia (v_crit constante)",
-                      template=_TEMPLATE, height=400, showlegend=False)
+    fig.update_layout(template=_TEMPLATE, height=400, showlegend=False,
+                      margin=dict(l=50, r=20, t=50, b=40))
     return fig
 
 

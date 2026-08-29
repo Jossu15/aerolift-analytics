@@ -340,14 +340,16 @@ export default function WellDetailPage() {
 
   function renderFigure(fig: { data: unknown[]; layout: Record<string, unknown> } | null | undefined, height = 360) {
     if (!fig) return null;
+    const layout = { ...(fig.layout as object) } as Record<string, unknown>;
+    delete layout.title;
     return (
       <Plot
         data={fig.data as never[]}
         layout={{
           autosize: true,
           height,
-          margin: { l: 50, r: 20, t: 20, b: 40 },
-          ...(fig.layout as object),
+          margin: { l: 50, r: 20, t: 55, b: 40 },
+          ...layout,
         }}
         config={{ responsive: true, displayModeBar: false }}
         style={{ width: "100%" }}
