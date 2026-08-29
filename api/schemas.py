@@ -26,7 +26,7 @@ class WellBase(BaseModel):
     p_wh: float = Field(gt=0, description="Wellhead pressure, psia")
     t_wh_f: float = Field(description="Surface temperature, deg F")
     tvd_ft: float = Field(gt=0, description="True vertical depth, ft")
-    tubing_id_in: float = Field(gt=0.5, lt=2.0, description="Tubing ID, in")
+    tubing_id_in: float = Field(gt=0.5, lt=8.0, description="Tubing ID, in")
 
     q_water_bpd: float = Field(default=0.0, ge=0)
     liquid_sg: float = Field(default=1.0, gt=0)
@@ -98,7 +98,7 @@ class WellUpdate(BaseModel):
     p_wh: Optional[float] = Field(default=None, gt=0)
     t_wh_f: Optional[float] = None
     tvd_ft: Optional[float] = Field(default=None, gt=0)
-    tubing_id_in: Optional[float] = Field(default=None, gt=0.5, lt=2.0)
+    tubing_id_in: Optional[float] = Field(default=None, gt=0.5, lt=8.0)
     q_water_bpd: Optional[float] = Field(default=None, ge=0)
     liquid_sg: Optional[float] = Field(default=None, gt=0)
     q_gas_nominal_mscfd: Optional[float] = Field(default=None, ge=0)
