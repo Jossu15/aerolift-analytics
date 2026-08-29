@@ -3,6 +3,7 @@ forecast, calibration, economics, PDF report."""
 
 import datetime
 import json
+import math
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
@@ -15,11 +16,21 @@ from api.database import get_db
 from math_engine import economics as econ_engine
 from math_engine import oil_pvt
 from math_engine.artificial_lift import rod_pump_check, size_esp
+from math_engine.forecast import fit_material_balance
 from math_engine.charts import (
     plot_operating_envelope,
     plot_vcrit_vs_pressure,
     plot_vcrit_vs_temperature,
     plot_vcrit_vs_diameter,
+    plot_pz,
+    plot_deliverability_loglog,
+    plot_temperature_profile,
+    plot_erosional_velocity,
+    plot_hydrate_curve,
+    plot_multi_model_comparison,
+    plot_belfroid_envelope,
+    plot_decline_type_curves,
+    plot_corey_rel_perm,
 )
 
 router = APIRouter(prefix="/api/wells/{well_id}/analysis", tags=["analysis"])
@@ -87,6 +98,14 @@ class ChartsOut(BaseModel):
     vcrit_vs_pressure: ChartFigure
     vcrit_vs_temperature: ChartFigure
     vcrit_vs_diameter: ChartFigure
+    temperature_profile: Optional[ChartFigure] = None
+    multi_model_comparison: Optional[ChartFigure] = None
+    belfroid_envelope: Optional[ChartFigure] = None
+    erosional_velocity: Optional[ChartFigure] = None
+    hydrate_curve: Optional[ChartFigure] = None
+    decline_type_curves: Optional[ChartFigure] = None
+    pz: Optional[ChartFigure] = None
+    deliverability_loglog: Optional[ChartFigure] = None
 
 
 class ForecastIn(BaseModel):
@@ -215,7 +234,9 @@ def traverse(well_id: int, q_gas_mscfd: Optional[float] = None,
 def charts(well_id: int, q_gas_mscfd: Optional[float] = None,
            key: models.ApiKey = Depends(get_current_key),
            db: Session = Depends(get_db)):
-    """The four liquid-loading drill-down charts as Plotly figures.
+    """Liquid-loading drill-down charts plus engineering and nodal
+    support figures (temperature, multi-model, Belfroid, erosional,
+    hydrate, p/z, deliverability) as Plotly figures.
 
     Each figure serializes to ``{"data": [...], "layout": {...}}`` so
     react-plotly.js can consume it directly.
@@ -227,7 +248,7 @@ def charts(well_id: int, q_gas_mscfd: Optional[float] = None,
         raise HTTPException(422,
                             "no gas rate available (pass ?q_gas_mscfd=)")
     t_res_r = float(well.t_res_f) + 460.0
-    result, _spec = engines.natural_flow_point(db, well)
+    result, spec = engines.natural_flow_point(db, well)
     bhp_eval = result["Pwf_psia"] if result else \
         float(well.p_wh if well.p_wh else 200.0)
 
@@ -235,7 +256,47 @@ def charts(well_id: int, q_gas_mscfd: Optional[float] = None,
         payload = json.loads(fig.to_json())
         return ChartFigure(data=payload["data"], layout=payload["layout"])
 
-    return ChartsOut(
+    def _safe(builder, *args, **kwargs):
+        try:
+            return _fig(builder(*args, **kwargs))
+        except Exception:
+            return None
+
+    def _deliverability_series(n_points: int = 8):
+        """Reconstruct the R-S / Houpeurt deliverability curve as
+        (pwf_list, q_list) so the log-log test plot has data to draw."""
+        kind, prm = spec
+        p_res = float(well.p_res)
+        pwf_list, q_list = [], []
+        for i in range(1, n_points + 1):
+            pwf = p_res * (1.0 - i / (n_points + 1.0))
+            dp2 = p_res ** 2 - pwf ** 2
+            if kind == "rs":
+                q = prm["C"] * dp2 ** prm["n"]
+            else:
+                disc = prm["a"] ** 2 + 4.0 * prm["b"] * dp2
+                if disc <= 0:
+                    continue
+                q = (-prm["a"] + math.sqrt(disc)) / (2.0 * prm["b"])
+            if q > 0:
+                pwf_list.append(pwf)
+                q_list.append(q)
+        return pwf_list, q_list
+
+    gp_hist, p_hist, _ = engines.preview_decline_history(db, well)
+    try:
+        intercept, slope, G = fit_material_balance(
+            t_res_r, float(well.gamma_g), gp_hist, p_hist)
+        pz_data = plot_pz(gp_hist, p_hist, G, intercept, slope)
+    except Exception:
+        pz_data = None
+    pwf_list, q_list = _deliverability_series()
+    deliverability_fig = None
+    if pwf_list and len(pwf_list) >= 2:
+        deliverability_fig = _safe(plot_deliverability_loglog,
+                                   pwf_list, q_list, float(well.p_res))
+
+    base = dict(
         well_id=well.id,
         operating_envelope=_fig(plot_operating_envelope(
             float(well.p_res), t_res_r, float(well.gamma_g),
@@ -251,6 +312,27 @@ def charts(well_id: int, q_gas_mscfd: Optional[float] = None,
             bhp_eval, t_res_r, float(well.gamma_g),
             "water", well.load_method)),
     )
+
+    extra = dict(
+        temperature_profile=_safe(plot_temperature_profile,
+            float(well.p_wh), float(well.t_wh_f), float(well.t_res_f),
+            float(well.tvd_ft), q, float(well.tubing_id_in),
+            float(well.gamma_g)),
+        multi_model_comparison=_safe(plot_multi_model_comparison,
+            bhp_eval, t_res_r, float(well.gamma_g),
+            float(well.tubing_id_in), "water"),
+        belfroid_envelope=_safe(plot_belfroid_envelope,
+            bhp_eval, t_res_r, float(well.gamma_g),
+            float(well.tubing_id_in), q, "water"),
+        erosional_velocity=_safe(plot_erosional_velocity,
+            float(well.tubing_id_in), float(well.gamma_g)),
+        hydrate_curve=_safe(plot_hydrate_curve),
+        decline_type_curves=_safe(plot_decline_type_curves,
+            q, 0.5, 0.001, 60),
+        pz=_fig(pz_data) if pz_data is not None else None,
+        deliverability_loglog=deliverability_fig,
+    )
+    return ChartsOut(**base, **extra)
 
 
 @router.post("/forecast", response_model=ForecastOut)

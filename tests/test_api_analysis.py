@@ -192,6 +192,36 @@ class TestChartsEndpoint:
         assert client.get("/api/wells/999999/analysis/charts") \
             .status_code == 404
 
+    def test_extended_engineering_figures(self, client, tested_well_id):
+        r = client.get("/api/wells/{}/analysis/charts".format(
+            tested_well_id))
+        assert r.status_code == 200, r.text
+        body = r.json()
+        for key in ("temperature_profile", "multi_model_comparison",
+                    "belfroid_envelope", "erosional_velocity",
+                    "hydrate_curve", "decline_type_curves",
+                    "pz", "deliverability_loglog"):
+            assert key in body
+            fig = body[key]
+            assert fig is not None, key
+            assert "data" in fig and "layout" in fig
+            assert len(fig["data"]) >= 1
+
+    def test_engineering_figures_respect_rate_override(self, client,
+                                                       tested_well_id):
+        r_default = client.get("/api/wells/{}/analysis/charts".format(
+            tested_well_id))
+        r_low = client.get("/api/wells/{}/analysis/charts".format(
+            tested_well_id), params={"q_gas_mscfd": 60.0})
+        assert r_default.status_code == r_low.status_code == 200
+        default_names = [t.get("name") for t in
+                         r_default.json()["operating_envelope"]["data"]]
+        low_names = [t.get("name") for t in
+                     r_low.json()["operating_envelope"]["data"]]
+        # The actual-well star marker re-labels with the override rate:
+        assert "Punto actual" in default_names
+        assert "Punto actual" in low_names
+
 
 class TestForecastViewEndpoint:
     def test_preview_forecast_without_history(self, client, tested_well_id):
