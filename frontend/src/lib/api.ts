@@ -7,6 +7,7 @@ import type {
   CalibrationResult,
   EconomicsRequest,
   EconomicsResult,
+  HistoryUploadResult,
   OilIprResult,
   ApiKeyInfo,
   Alert,
@@ -86,6 +87,17 @@ export async function postEconomics(
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
+  });
+}
+
+export async function uploadHistoryCsv(
+  id: number,
+  csvText: string
+): Promise<HistoryUploadResult> {
+  return apiFetch<HistoryUploadResult>(`/api/wells/${id}/history/csv`, {
+    method: "POST",
+    headers: { "Content-Type": "text/csv" },
+    body: csvText,
   });
 }
 

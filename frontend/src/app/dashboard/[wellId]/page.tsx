@@ -4,8 +4,8 @@ import { useEffect, useState, useCallback } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import dynamic from "next/dynamic";
-import { getWell, getLoading, getForecast, getCharts, getTraverse, getCalibration, postEconomics, postOilIpr, downloadReportPdf, getTwins, getMlStatus, trainTwin } from "@/lib/api";
-import type { Well, LoadingResult, ForecastResult, ChartsResult, TraverseResult, CalibrationResult, EconomicsResult, OilIprResult, Twin, MlStatus } from "@/lib/types";
+import { getWell, getLoading, getForecast, getCharts, getTraverse, getCalibration, postEconomics, postOilIpr, downloadReportPdf, uploadHistoryCsv, getTwins, getMlStatus, trainTwin } from "@/lib/api";
+import type { Well, LoadingResult, ForecastResult, ChartsResult, TraverseResult, CalibrationResult, EconomicsResult, HistoryUploadResult, OilIprResult, Twin, MlStatus } from "@/lib/types";
 
 const Plot = dynamic(() => import("react-plotly.js"), { ssr: false });
 
@@ -79,6 +79,10 @@ export default function WellDetailPage() {
   const [charts, setCharts] = useState<ChartsResult | null>(null);
   const [traverse, setTraverse] = useState<TraverseResult | null>(null);
   const [calibration, setCalibration] = useState<CalibrationResult | null>(null);
+  const [histFile, setHistFile] = useState<File | null>(null);
+  const [histBusy, setHistBusy] = useState(false);
+  const [histMsg, setHistMsg] = useState<string | null>(null);
+  const [histResult, setHistResult] = useState<HistoryUploadResult | null>(null);
   const [twins, setTwins] = useState<Twin[]>([]);
   const [mlStatus, setMlStatus] = useState<MlStatus | null>(null);
   const [twinBusy, setTwinBusy] = useState(false);
@@ -213,6 +217,62 @@ export default function WellDetailPage() {
     } finally {
       setPdfBusy(false);
     }
+  }
+
+  function handleHistFile(e: React.ChangeEvent<HTMLInputElement>) {
+    setHistFile(e.target.files?.[0] ?? null);
+    setHistMsg(null);
+    setHistResult(null);
+  }
+
+  async function handleUploadHistory() {
+    if (!histFile) {
+      setHistMsg("Selecciona un archivo CSV primero.");
+      return;
+    }
+    setHistBusy(true);
+    setHistMsg(null);
+    try {
+      const text = await histFile.text();
+      const res = await uploadHistoryCsv(wellId, text);
+      setHistResult(res);
+      const cal = await getCalibration(wellId);
+      setCalibration(cal);
+      if (res.records_added > 0 && cal.n_points > 0) {
+        setHistMsg(`Historial cargado: ${cal.n_points} filas con Pwf para calibrar.`);
+      } else if (res.records_added > 0) {
+        setHistMsg("Historial agregado, pero ninguna fila trae pwf_psia para calibrar.");
+      } else {
+        setHistMsg("No se agrego ninguna fila (revisa el formato del CSV).");
+      }
+    } catch (e: unknown) {
+      setHistMsg(e instanceof Error ? e.message : "Error al subir el historial");
+    } finally {
+      setHistBusy(false);
+    }
+  }
+
+  function downloadTemplate() {
+    const pr = well?.p_res ?? 2400;
+    const qn = well?.q_gas_nominal_mscfd ?? 900;
+    const rows = [
+      [qn, pr * 0.21],
+      [qn - 10, pr * 0.215],
+      [qn - 20, pr * 0.22],
+    ];
+    const csv =
+      "date,q_gas_mscfd,pwf_psia,q_water_bpd,p_wh_psia\r\n" +
+      rows.map(([q, pwf], i) => `2026-0${i + 1}-01,${q},${Math.round(pwf)},5,180`)
+        .join("\r\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "historial_pwf_plantilla.csv";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   }
 
   function applyRate() {
@@ -640,14 +700,67 @@ export default function WellDetailPage() {
           </div>
         )}
 
-        {tab === "calibracion" && calibration && (
+        {tab === "calibracion" && (
           <div className="space-y-6">
-            {calibration.note && (
+            <div className="bg-white rounded-lg border p-4">
+              <h2 className="font-semibold text-gray-800 mb-2">
+                Cargar historial de produccion para calibrar
+              </h2>
+              <p className="text-sm text-gray-500 mb-3">
+                Sube un CSV con columnas <code className="font-mono">date</code>,{" "}
+                <code className="font-mono">q_gas_mscfd</code> y{" "}
+                <code className="font-mono">pwf_psia</code> (alias: fecha, q_gas,
+                gas_rate, tasa_gas, pwf, bhfp, presion_fondo). Las filas con Pwf seran
+                comparadas contra el VLP calculado.
+              </p>
+              <div className="flex flex-wrap items-center gap-3">
+                <input
+                  type="file"
+                  accept=".csv,text/csv"
+                  onChange={handleHistFile}
+                  className="text-sm text-gray-600 file:mr-3 file:px-3 file:py-1.5 file:rounded-lg file:border-0 file:bg-blue-50 file:text-blue-700 file:text-sm file:font-medium hover:file:bg-blue-100"
+                />
+                <button
+                  onClick={handleUploadHistory}
+                  disabled={histBusy}
+                  className="px-3 py-2 text-sm rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 transition"
+                >
+                  {histBusy ? "Subiendo..." : "Subir y calibrar"}
+                </button>
+                <button
+                  onClick={downloadTemplate}
+                  className="px-3 py-2 text-sm rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-100 transition"
+                >
+                  Descargar plantilla
+                </button>
+              </div>
+              {histMsg && (
+                <p className="text-sm text-gray-700 bg-gray-50 border rounded-lg px-3 py-2 mt-3">
+                  {histMsg}
+                </p>
+              )}
+              {histResult && histResult.records_skipped > 0 && (
+                <div className="mt-3 px-3 py-2 bg-amber-50 border border-amber-300 rounded-lg text-sm text-amber-800">
+                  <p>
+                    {histResult.records_added} agregadas, {histResult.records_skipped}{" "}
+                    omitidas.
+                  </p>
+                  {histResult.errors.slice(0, 5).map((err, i) => (
+                    <p key={i} className="text-xs mt-1">
+                      {err}
+                    </p>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {calibration?.note && (
               <div className="px-4 py-3 bg-amber-50 border border-amber-300 rounded-lg text-sm text-amber-800">
                 {calibration.note}
               </div>
             )}
-            {calibration.n_points > 0 && (
+
+            {calibration && calibration.n_points > 0 && (
               <>
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 text-sm">
                   <div className="bg-white rounded-lg border p-3">
@@ -741,12 +854,6 @@ export default function WellDetailPage() {
                 </div>
               </>
             )}
-          </div>
-        )}
-
-        {tab === "calibracion" && !calibration && (
-          <div className="bg-white rounded-lg border p-6 text-center text-gray-400 text-sm">
-            Calibracion no disponible para este pozo.
           </div>
         )}
 

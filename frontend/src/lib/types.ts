@@ -109,6 +109,12 @@ export interface EconomicsRequest {
   time_step_days?: number;
 }
 
+export interface HistoryUploadResult {
+  records_added: number;
+  records_skipped: number;
+  errors: string[];
+}
+
 export interface OilIprPoint {
   pwf_psia: number;
   qo_stb_d: number;
